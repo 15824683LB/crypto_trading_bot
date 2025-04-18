@@ -69,13 +69,18 @@ def liquidity_grab_order_block(df):
     # Check for volatility - filter high wick candles
     candle_body = abs(df['close'].iloc[-1] - df['open'].iloc[-1])
     candle_range = df['high'].iloc[-1] - df['low'].iloc[-1]
+
+    # Prevent divide by zero or NaN
+    if candle_range == 0 or pd.isna(candle_range) or pd.isna(candle_body):
+        return "NO SIGNAL", None, None, None, None, None
+
     if candle_body / candle_range < 0.3:
         return "NO SIGNAL", None, None, None, None, None
 
     # BUY Condition
     if liquidity_grab.iloc[-1] and order_block.iloc[-1] and bullish_confirm:
         entry = round(df['close'].iloc[-1], 2)
-        sl = round(min(df['low'].iloc[-2], df['low'].iloc[-3]) * 0.998, 2)  # smart SL with margin
+        sl = round(min(df['low'].iloc[-2], df['low'].iloc[-3]) * 0.998, 2)
         tp = round(entry + (entry - sl) * 2, 2)
         tsl = round(entry + (entry - sl) * 1.5, 2)
         return "BUY", entry, sl, tp, tsl, "🟢"
