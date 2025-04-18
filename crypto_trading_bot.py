@@ -1,5 +1,4 @@
-                        "
-    import time
+import time
 import requests
 import pandas as pd
 import ccxt
