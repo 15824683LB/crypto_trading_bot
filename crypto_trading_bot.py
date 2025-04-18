@@ -79,20 +79,21 @@ def liquidity_grab_order_block(df):
 
     # BUY Condition
     if liquidity_grab.iloc[-1] and order_block.iloc[-1] and bullish_confirm:
-        entry = round(df['close'].iloc[-1], 2)
-        sl = round(min(df['low'].iloc[-2], df['low'].iloc[-3]) * 0.998, 2)
-        tp = round(entry + (entry - sl) * 2, 2)
-        tsl = round(entry + (entry - sl) * 1.5, 2)
-        return "BUY", entry, sl, tp, tsl, "🟢"
+       # BUY Condition
+if liquidity_grab.iloc[-1] and order_block.iloc[-1] and bullish_confirm:
+    entry = round(df['close'].iloc[-1], 4)
+    sl = round(min(df['low'].iloc[-2], df['low'].iloc[-3]) * 0.998, 4)
+    tp = round(entry + (entry - sl) * 2, 4)
+    tsl = round(entry + (entry - sl) * 1.5, 4)
+    return "BUY", entry, sl, tp, tsl, "🟢"
 
-    # SELL Condition
-    elif liquidity_grab.iloc[-1] and not order_block.iloc[-1] and bearish_confirm:
-        entry = round(df['close'].iloc[-1], 2)
-        sl = round(max(df['high'].iloc[-2], df['high'].iloc[-3]) * 1.002, 2)
-        tp = round(entry - (sl - entry) * 2, 2)
-        tsl = round(entry - (sl - entry) * 1.5, 2)
-        return "SELL", entry, sl, tp, tsl, "🔴"
-
+# SELL Condition
+elif liquidity_grab.iloc[-1] and not order_block.iloc[-1] and bearish_confirm:
+    entry = round(df['close'].iloc[-1], 4)
+    sl = round(max(df['high'].iloc[-2], df['high'].iloc[-3]) * 1.002, 4)
+    tp = round(entry - (sl - entry) * 2, 4)
+    tsl = round(entry - (sl - entry) * 1.5, 4)
+    return "SELL", entry, sl, tp, tsl, "🔴"
     return "NO SIGNAL", None, None, None, None, None
 
 # Check TP/SL
