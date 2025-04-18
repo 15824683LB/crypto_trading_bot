@@ -77,9 +77,8 @@ def liquidity_grab_order_block(df):
     if candle_body / candle_range < 0.3:
         return "NO SIGNAL", None, None, None, None, None
 
+    
     # BUY Condition
-    if liquidity_grab.iloc[-1] and order_block.iloc[-1] and bullish_confirm:
-       # BUY Condition
 if liquidity_grab.iloc[-1] and order_block.iloc[-1] and bullish_confirm:
     entry = round(df['close'].iloc[-1], 4)
     sl = round(min(df['low'].iloc[-2], df['low'].iloc[-3]) * 0.998, 4)
