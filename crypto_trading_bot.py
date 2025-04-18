@@ -147,40 +147,54 @@ def check_tp_sl():
                     del active_trades[pair]
 
 # Main Loop
+TIMEFRAMES = ['15m', '30m', '4h']
 CRYPTO_SYMBOLS = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT"]
 active_trades = {}
+
+def get_lookback_for_tf(tf):
+    if tf == '15m':
+        return '3 days ago UTC'
+    elif tf == '30m':
+        return '5 days ago UTC'
+    elif tf == '4h':
+        return '30 days ago UTC'
+    return '2 days ago UTC'  # Default fallback
 
 while True:
     try:
         for symbol in CRYPTO_SYMBOLS:
-            df = fetch_data(symbol, '1m', '2 days ago UTC')
-            if df is not None:
-                if symbol in active_trades:
-                    check_tp_sl()
-                else:
-                    signal, entry, sl, tp, tsl, color = liquidity_grab_order_block(df)
-                    if signal != "NO SIGNAL":
-                        tf = '1m'
-                        active_trades[symbol] = {
-                            'direction': signal,
-                            'entry': entry,
-                            'sl': sl,
-                            'tp': tp,
-                            'tsl': tsl,
-                            'signal_time': get_kolkata_time(),
-                            'timeframe': tf
-                        }
-                        msg = (
-                            f"{color} *New {signal} Signal - {symbol}*\n\n"
-                            f"🕓 Timeframe: `{tf}`\n📌 Strategy: *Liquidity Grab + Order Block*\n"
-                            f"🎯 Entry: `{entry}`\n💥 SL: `{sl}`\n💰 TP: `{tp}`\n🔺 TSL: `{tsl}`\n"
-                            f"🕐 Signal Time: `{active_trades[symbol]['signal_time']}`"
-                        )
-                        send_telegram_message(msg, TELEGRAM_CHAT_ID)
-                        send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
-                        print(f"{signal} Signal Sent for {symbol} at {entry}")
+            for tf in TIMEFRAMES:
+                trade_key = f"{symbol}_{tf}"
+                lookback = get_lookback_for_tf(tf)
+                df = fetch_data(symbol, tf, lookback)
+
+                if df is not None:
+                    if trade_key in active_trades:
+                        check_tp_sl()
+                    else:
+                        signal, entry, sl, tp, tsl, color = liquidity_grab_order_block(df)
+                        if signal != "NO SIGNAL":
+                            active_trades[trade_key] = {
+                                'direction': signal,
+                                'entry': entry,
+                                'sl': sl,
+                                'tp': tp,
+                                'tsl': tsl,
+                                'signal_time': get_kolkata_time(),
+                                'timeframe': tf
+                            }
+                            msg = (
+                                f"{color} *New {signal} Signal - {symbol}*\n\n"
+                                f"🕓 Timeframe: `{tf}`\n📌 Strategy: *Liquidity Grab + Order Block*\n"
+                                f"🎯 Entry: `{entry}`\n💥 SL: `{sl}`\n💰 TP: `{tp}`\n🔺 TSL: `{tsl}`\n"
+                                f"🕐 Signal Time: `{active_trades[trade_key]['signal_time']}`"
+                            )
+                            send_telegram_message(msg, TELEGRAM_CHAT_ID)
+                            send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
+                            print(f"{signal} Signal Sent for {symbol} ({tf}) at {entry}")
 
         time.sleep(60)
+
     except Exception as e:
         print("Error:", e)
         traceback.print_exc()
