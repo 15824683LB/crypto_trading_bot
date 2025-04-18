@@ -3,4 +3,4 @@ pandas==1.5.3
 ccxt==4.0.81
 requests==2.31.0
 flask==2.2.5
-werkzeug==2.3.7
+werkzeug==2.2.3
