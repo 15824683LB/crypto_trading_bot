@@ -6,7 +6,11 @@ from datetime import datetime
 import traceback
 from keep_alive import keep_alive
 
+# Start the keep-alive server
 keep_alive()
+
+# Your trading bot code starts here
+print("Crypto bot is running...")
 
 # Telegram Bot Configuration
 TELEGRAM_BOT_TOKEN = "7615583534:AAHaKfWLN7NP83LdmR32i6BfNWqq73nBsAE"
