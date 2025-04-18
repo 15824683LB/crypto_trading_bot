@@ -76,10 +76,8 @@ def liquidity_grab_order_block(df):
 
     if candle_body / candle_range < 0.3:
         return "NO SIGNAL", None, None, None, None, None
-def signal_generator(df):
-    
-    
-    # condition check
+
+    # BUY Condition
     if liquidity_grab.iloc[-1] and order_block.iloc[-1] and bullish_confirm:
         entry = round(df['close'].iloc[-1], 4)
         sl = round(min(df['low'].iloc[-2], df['low'].iloc[-3]) * 0.998, 4)
@@ -87,6 +85,7 @@ def signal_generator(df):
         tsl = round(entry + (entry - sl) * 1.5, 4)
         return "BUY", entry, sl, tp, tsl, "🟢"
 
+    # SELL Condition
     elif liquidity_grab.iloc[-1] and not order_block.iloc[-1] and bearish_confirm:
         entry = round(df['close'].iloc[-1], 4)
         sl = round(max(df['high'].iloc[-2], df['high'].iloc[-3]) * 1.002, 4)
@@ -94,8 +93,7 @@ def signal_generator(df):
         tsl = round(entry - (sl - entry) * 1.5, 4)
         return "SELL", entry, sl, tp, tsl, "🔴"
 
-    else:
-        return "", 0, 0, 0, 0, ""
+    return "NO SIGNAL", None, None, None, None, None
 
 # Check TP/SL
 def check_tp_sl():
