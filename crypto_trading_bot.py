@@ -56,21 +56,38 @@ def fetch_data(symbol, interval, lookback):
 def liquidity_grab_order_block(df):
     df['high_shift'] = df['high'].shift(1)
     df['low_shift'] = df['low'].shift(1)
+    df['close_shift'] = df['close'].shift(1)
+    df['open_shift'] = df['open'].shift(1)
+
     liquidity_grab = (df['high'] > df['high_shift']) & (df['low'] < df['low_shift'])
     order_block = df['close'] > df['open']
 
-    if liquidity_grab.iloc[-1] and order_block.iloc[-1]:
+    # Confirm candle direction logic
+    bullish_confirm = (df['close'].iloc[-1] > df['open'].iloc[-1]) and (df['close'].iloc[-1] > df['close'].iloc[-2])
+    bearish_confirm = (df['close'].iloc[-1] < df['open'].iloc[-1]) and (df['close'].iloc[-1] < df['close'].iloc[-2])
+
+    # Check for volatility - filter high wick candles
+    candle_body = abs(df['close'].iloc[-1] - df['open'].iloc[-1])
+    candle_range = df['high'].iloc[-1] - df['low'].iloc[-1]
+    if candle_body / candle_range < 0.3:
+        return "NO SIGNAL", None, None, None, None, None
+
+    # BUY Condition
+    if liquidity_grab.iloc[-1] and order_block.iloc[-1] and bullish_confirm:
         entry = round(df['close'].iloc[-1], 2)
-        sl = round(df['low'].iloc[-2], 2)
+        sl = round(min(df['low'].iloc[-2], df['low'].iloc[-3]) * 0.998, 2)  # smart SL with margin
         tp = round(entry + (entry - sl) * 2, 2)
         tsl = round(entry + (entry - sl) * 1.5, 2)
         return "BUY", entry, sl, tp, tsl, "🟢"
-    elif liquidity_grab.iloc[-1] and not order_block.iloc[-1]:
+
+    # SELL Condition
+    elif liquidity_grab.iloc[-1] and not order_block.iloc[-1] and bearish_confirm:
         entry = round(df['close'].iloc[-1], 2)
-        sl = round(df['high'].iloc[-2], 2)
+        sl = round(max(df['high'].iloc[-2], df['high'].iloc[-3]) * 1.002, 2)
         tp = round(entry - (sl - entry) * 2, 2)
         tsl = round(entry - (sl - entry) * 1.5, 2)
         return "SELL", entry, sl, tp, tsl, "🔴"
+
     return "NO SIGNAL", None, None, None, None, None
 
 # Check TP/SL
