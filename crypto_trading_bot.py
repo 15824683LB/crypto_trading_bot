@@ -13,9 +13,9 @@ keep_alive()
 print("Crypto bot is running...")
 
 # Telegram Bot Configuration
-TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN"
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
-TELEGRAM_GROUP_CHAT_ID = "@YOUR_GROUP_CHAT_ID"
+TELEGRAM_BOT_TOKEN = "7615583534:AAHaKfWLN7NP83LdmR32i6BfNWqq73nBsAE"
+TELEGRAM_CHAT_ID = "8191014589"
+TELEGRAM_GROUP_CHAT_ID = "@TradeAlertcrypto"
 
 # MEXC API Setup
 exchange = ccxt.mexc({
