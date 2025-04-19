@@ -104,8 +104,9 @@ def check_tp_sl():
             if trade['direction'] == "BUY":
                 if last_price >= trade['tp']:
                     msg = (
-                        f"✅ *TP Hit - {symbol}*"
-\n\n📈 Direction: *BUY*\n🕓 Timeframe: `{tf}`\n🎯 Entry: `{trade['entry']}`\n"
+    f"✅ *TP Hit - {symbol}*\n\n"
+    f"📈 Direction: *BUY*\n🕓 Timeframe: `{tf}`\n🎯 Entry: `{trade['entry']}`\n"
+)
                         f"💰 TP: `{trade['tp']}`\n📍 SL: `{trade['sl']}`\n📌 Strategy: *Liquidity Grab + Order Block*\n\n"
                         f"🕐 Signal Time: `{signal_time}`\n🕒 TP Time: `{now_time}`"
                     )
