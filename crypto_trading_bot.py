@@ -13,8 +13,8 @@ keep_alive()
 print("Crypto bot is running...")
 
 # Telegram Bot Configuration
-TELEGRAM_BOT_TOKEN = "7615583534:AAHaKfWLN7NP83LdmR32i6BfNWqq73nBsAE"
-TELEGRAM_CHAT_ID = "8191014589"
+TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+TELEGRAM_CHAT_ID = "YOUR_PRIVATE_CHAT_ID"
 TELEGRAM_GROUP_CHAT_ID = "@TradeAlertcrypto"
 
 # MEXC API Setup
@@ -52,7 +52,7 @@ def fetch_data(symbol, interval, lookback):
     df = df.astype(float)
     return df
 
-# Strategy - Liquidity Grab + Order Block
+# Strategy
 def liquidity_grab_order_block(df):
     df['high_shift'] = df['high'].shift(1)
     df['low_shift'] = df['low'].shift(1)
@@ -62,124 +62,123 @@ def liquidity_grab_order_block(df):
     liquidity_grab = (df['high'] > df['high_shift']) & (df['low'] < df['low_shift'])
     order_block = df['close'] > df['open']
 
+    # Confirm candle direction logic
     bullish_confirm = (df['close'].iloc[-1] > df['open'].iloc[-1]) and (df['close'].iloc[-1] > df['close'].iloc[-2])
     bearish_confirm = (df['close'].iloc[-1] < df['open'].iloc[-1]) and (df['close'].iloc[-1] < df['close'].iloc[-2])
 
+    # Check for volatility - filter high wick candles
     candle_body = abs(df['close'].iloc[-1] - df['open'].iloc[-1])
     candle_range = df['high'].iloc[-1] - df['low'].iloc[-1]
 
+    # Prevent divide by zero or NaN
     if candle_range == 0 or pd.isna(candle_range) or pd.isna(candle_body):
         return "NO SIGNAL", None, None, None, None, None
 
     if candle_body / candle_range < 0.3:
         return "NO SIGNAL", None, None, None, None, None
 
+    # BUY Condition
     if liquidity_grab.iloc[-1] and order_block.iloc[-1] and bullish_confirm:
         entry = round(df['close'].iloc[-1], 2)
         sl = round(min(df['low'].iloc[-2], df['low'].iloc[-3]) * 0.998, 2)
         tp = round(entry + (entry - sl) * 2, 2)
         tsl = round(entry + (entry - sl) * 1.5, 2)
-        return "BUY", entry, sl, tp, tsl, "\ud83d\udfe2"
+        return "BUY", entry, sl, tp, tsl, "🟢"
 
+    # SELL Condition
     elif liquidity_grab.iloc[-1] and not order_block.iloc[-1] and bearish_confirm:
         entry = round(df['close'].iloc[-1], 2)
         sl = round(max(df['high'].iloc[-2], df['high'].iloc[-3]) * 1.002, 2)
         tp = round(entry - (sl - entry) * 2, 2)
         tsl = round(entry - (sl - entry) * 1.5, 2)
-        return "SELL", entry, sl, tp, tsl, "\ud83d\udd34"
+        return "SELL", entry, sl, tp, tsl, "🔴"
 
     return "NO SIGNAL", None, None, None, None, None
-
 # Check TP/SL
 def check_tp_sl():
     global active_trades
-    for key, trade in list(active_trades.items()):
-        symbol, tf = key
-        df = fetch_data(symbol, tf, '2 days ago UTC')
+    for pair, trade in list(active_trades.items()):
+        df = fetch_data(pair, '1m', '2 days ago UTC')
         if df is not None:
             last_price = df['close'].iloc[-1]
             now_time = get_kolkata_time()
             signal_time = trade.get("signal_time", "N/A")
+            tf = trade.get("timeframe", "1m")
 
             if trade['direction'] == "BUY":
                 if last_price >= trade['tp']:
                     msg = (
-                        f"\u2705 *TP Hit - {symbol}*\n\n"
-                        f"\ud83d\udcc8 Direction: *BUY*\n\ud83d\udd53 Timeframe: `{tf}`\n\ud83c\udfaf Entry: `{trade['entry']}`\n"
-                        f"\ud83d\udcb0 TP: `{trade['tp']}`\n\ud83d\udccd SL: `{trade['sl']}`\n\ud83d\udccc Strategy: *Liquidity Grab + Order Block*\n\n"
-                        f"\ud83d\udd50 Signal Time: `{signal_time}`\n\ud83d\udd52 TP Time: `{now_time}`"
+                        f"✅ *TP Hit - {pair}*\n\n📈 Direction: *BUY*\n🕓 Timeframe: `{tf}`\n🎯 Entry: `{trade['entry']}`\n"
+                        f"💰 TP: `{trade['tp']}`\n📍 SL: `{trade['sl']}`\n📌 Strategy: *Liquidity Grab + Order Block*\n\n"
+                        f"🕐 Signal Time: `{signal_time}`\n🕒 TP Time: `{now_time}`"
                     )
                     send_telegram_message(msg, TELEGRAM_CHAT_ID)
                     send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
-                    del active_trades[key]
+                    del active_trades[pair]
                 elif last_price <= trade['sl']:
                     msg = (
-                        f"\u274c *SL Hit - {symbol}*\n\n"
-                        f"\ud83d\udcc8 Direction: *BUY*\n\ud83d\udd53 Timeframe: `{tf}`\n\ud83c\udfaf Entry: `{trade['entry']}`\n"
-                        f"\ud83d\udca5 SL: `{trade['sl']}`\n\ud83d\udccc Strategy: *Liquidity Grab + Order Block*\n\n"
-                        f"\ud83d\udd50 Signal Time: `{signal_time}`\n\ud83d\udd52 SL Time: `{now_time}`"
+                        f"❌ *SL Hit - {pair}*\n\n📈 Direction: *BUY*\n🕓 Timeframe: `{tf}`\n🎯 Entry: `{trade['entry']}`\n"
+                        f"💥 SL: `{trade['sl']}`\n📌 Strategy: *Liquidity Grab + Order Block*\n\n"
+                        f"🕐 Signal Time: `{signal_time}`\n🕒 SL Time: `{now_time}`"
                     )
                     send_telegram_message(msg, TELEGRAM_CHAT_ID)
                     send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
-                    del active_trades[key]
+                    del active_trades[pair]
 
             elif trade['direction'] == "SELL":
                 if last_price <= trade['tp']:
                     msg = (
-                        f"\u2705 *TP Hit - {symbol}*\n\n"
-                        f"\ud83d\udcc9 Direction: *SELL*\n\ud83d\udd53 Timeframe: `{tf}`\n\ud83c\udfaf Entry: `{trade['entry']}`\n"
-                        f"\ud83d\udcb0 TP: `{trade['tp']}`\n\ud83d\udccd SL: `{trade['sl']}`\n\ud83d\udccc Strategy: *Liquidity Grab + Order Block*\n\n"
-                        f"\ud83d\udd50 Signal Time: `{signal_time}`\n\ud83d\udd52 TP Time: `{now_time}`"
+                        f"✅ *TP Hit - {pair}*\n\n📉 Direction: *SELL*\n🕓 Timeframe: `{tf}`\n🎯 Entry: `{trade['entry']}`\n"
+                        f"💰 TP: `{trade['tp']}`\n📍 SL: `{trade['sl']}`\n📌 Strategy: *Liquidity Grab + Order Block*\n\n"
+                        f"🕐 Signal Time: `{signal_time}`\n🕒 TP Time: `{now_time}`"
                     )
                     send_telegram_message(msg, TELEGRAM_CHAT_ID)
                     send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
-                    del active_trades[key]
+                    del active_trades[pair]
                 elif last_price >= trade['sl']:
                     msg = (
-                        f"\u274c *SL Hit - {symbol}*\n\n"
-                        f"\ud83d\udcc9 Direction: *SELL*\n\ud83d\udd53 Timeframe: `{tf}`\n\ud83c\udfaf Entry: `{trade['entry']}`\n"
-                        f"\ud83d\udca5 SL: `{trade['sl']}`\n\ud83d\udccc Strategy: *Liquidity Grab + Order Block*\n\n"
-                        f"\ud83d\udd50 Signal Time: `{signal_time}`\n\ud83d\udd52 SL Time: `{now_time}`"
+                        f"❌ *SL Hit - {pair}*\n\n📉 Direction: *SELL*\n🕓 Timeframe: `{tf}`\n🎯 Entry: `{trade['entry']}`\n"
+                        f"💥 SL: `{trade['sl']}`\n📌 Strategy: *Liquidity Grab + Order Block*\n\n"
+                        f"🕐 Signal Time: `{signal_time}`\n🕒 SL Time: `{now_time}`"
                     )
                     send_telegram_message(msg, TELEGRAM_CHAT_ID)
                     send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
-                    del active_trades[key]
+                    del active_trades[pair]
 
 # Main Loop
 CRYPTO_SYMBOLS = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT"]
-TIMEFRAMES = ["5m", "15m", "1h"]
 active_trades = {}
 
 while True:
     try:
         for symbol in CRYPTO_SYMBOLS:
-            for tf in TIMEFRAMES:
-                df = fetch_data(symbol, tf, '2 days ago UTC')
-                if df is not None:
-                    key = (symbol, tf)
-                    if key in active_trades:
-                        check_tp_sl()
-                    else:
-                        signal, entry, sl, tp, tsl, color = liquidity_grab_order_block(df)
-                        if signal != "NO SIGNAL":
-                            active_trades[key] = {
-                                'direction': signal,
-                                'entry': entry,
-                                'sl': sl,
-                                'tp': tp,
-                                'tsl': tsl,
-                                'signal_time': get_kolkata_time(),
-                                'timeframe': tf
-                            }
-                            msg = (
-                                f"{color} New {signal} Signal - {symbol}\n\n"
-                                f"\ud83d\udd53 Timeframe: {tf}\n\ud83d\udccc Strategy: Liquidity Grab + Order Block\n"
-                                f"\ud83c\udfaf Entry: {entry}\n\ud83d\udca5 SL: {sl}\n\ud83d\udcb0 TP: {tp}\n\u2b06 TSL: {tsl}\n"
-                                f"\ud83d\udd50 Signal Time: {active_trades[key]['signal_time']}"
-                            )
-                            send_telegram_message(msg, TELEGRAM_CHAT_ID)
-                            send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
-                            print(f"{signal} Signal Sent for {symbol} ({tf}) at {entry}")
+            df = fetch_data(symbol, '1m', '2 days ago UTC')
+            if df is not None:
+                if symbol in active_trades:
+                    check_tp_sl()
+                else:
+                    signal, entry, sl, tp, tsl, color = liquidity_grab_order_block(df)
+                    if signal != "NO SIGNAL":
+                        tf = '1m'
+                        active_trades[symbol] = {
+                            'direction': signal,
+                            'entry': entry,
+                            'sl': sl,
+                            'tp': tp,
+                            'tsl': tsl,
+                            'signal_time': get_kolkata_time(),
+                            'timeframe': tf
+                        }
+                        msg = (
+                            f"{color} *New {signal} Signal - {symbol}*\n\n"
+                            f"🕓 Timeframe: `{tf}`\n📌 Strategy: *Liquidity Grab + Order Block*\n"
+                            f"🎯 Entry: `{entry}`\n💥 SL: `{sl}`\n💰 TP: `{tp}`\n🔺 TSL: `{tsl}`\n"
+                            f"🕐 Signal Time: `{active_trades[symbol]['signal_time']}`"
+                        )
+                        send_telegram_message(msg, TELEGRAM_CHAT_ID)
+                        send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
+                        print(f"{signal} Signal Sent for {symbol} at {entry}")
+
         time.sleep(60)
     except Exception as e:
         print("Error:", e)
