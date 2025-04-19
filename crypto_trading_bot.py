@@ -79,14 +79,14 @@ def liquidity_grab_order_block(df):
         sl = round(min(df['low'].iloc[-2], df['low'].iloc[-3]) * 0.998, 2)
         tp = round(entry + (entry - sl) * 2, 2)
         tsl = round(entry + (entry - sl) * 1.5, 2)
-        return "BUY", entry, sl, tp, tsl, "🟢"
+        return "BUY", entry, sl, tp, tsl, "\ud83d\udfe2"
 
     elif liquidity_grab.iloc[-1] and not order_block.iloc[-1] and bearish_confirm:
         entry = round(df['close'].iloc[-1], 2)
         sl = round(max(df['high'].iloc[-2], df['high'].iloc[-3]) * 1.002, 2)
         tp = round(entry - (sl - entry) * 2, 2)
         tsl = round(entry - (sl - entry) * 1.5, 2)
-        return "SELL", entry, sl, tp, tsl, "🔴"
+        return "SELL", entry, sl, tp, tsl, "\ud83d\udd34"
 
     return "NO SIGNAL", None, None, None, None, None
 
@@ -104,21 +104,20 @@ def check_tp_sl():
             if trade['direction'] == "BUY":
                 if last_price >= trade['tp']:
                     msg = (
-    f"✅ *TP Hit - {symbol}*\n\n"
-    f"📈 Direction: *BUY*\n🕓 Timeframe: `{tf}`\n🎯 Entry: `{trade['entry']}`\n"
-)
-                        f"💰 TP: `{trade['tp']}`\n📍 SL: `{trade['sl']}`\n📌 Strategy: *Liquidity Grab + Order Block*\n\n"
-                        f"🕐 Signal Time: `{signal_time}`\n🕒 TP Time: `{now_time}`"
+                        f"\u2705 *TP Hit - {symbol}*\n\n"
+                        f"\ud83d\udcc8 Direction: *BUY*\n\ud83d\udd53 Timeframe: `{tf}`\n\ud83c\udfaf Entry: `{trade['entry']}`\n"
+                        f"\ud83d\udcb0 TP: `{trade['tp']}`\n\ud83d\udccd SL: `{trade['sl']}`\n\ud83d\udccc Strategy: *Liquidity Grab + Order Block*\n\n"
+                        f"\ud83d\udd50 Signal Time: `{signal_time}`\n\ud83d\udd52 TP Time: `{now_time}`"
                     )
                     send_telegram_message(msg, TELEGRAM_CHAT_ID)
                     send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
                     del active_trades[key]
                 elif last_price <= trade['sl']:
                     msg = (
-                        f"❌ *SL Hit - {symbol}*
-\n\n📈 Direction: *BUY*\n🕓 Timeframe: `{tf}`\n🎯 Entry: `{trade['entry']}`\n"
-                        f"💥 SL: `{trade['sl']}`\n📌 Strategy: *Liquidity Grab + Order Block*\n\n"
-                        f"🕐 Signal Time: `{signal_time}`\n🕒 SL Time: `{now_time}`"
+                        f"\u274c *SL Hit - {symbol}*\n\n"
+                        f"\ud83d\udcc8 Direction: *BUY*\n\ud83d\udd53 Timeframe: `{tf}`\n\ud83c\udfaf Entry: `{trade['entry']}`\n"
+                        f"\ud83d\udca5 SL: `{trade['sl']}`\n\ud83d\udccc Strategy: *Liquidity Grab + Order Block*\n\n"
+                        f"\ud83d\udd50 Signal Time: `{signal_time}`\n\ud83d\udd52 SL Time: `{now_time}`"
                     )
                     send_telegram_message(msg, TELEGRAM_CHAT_ID)
                     send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
@@ -127,20 +126,20 @@ def check_tp_sl():
             elif trade['direction'] == "SELL":
                 if last_price <= trade['tp']:
                     msg = (
-                        f"✅ *TP Hit - {symbol}*
-\n\n📉 Direction: *SELL*\n🕓 Timeframe: `{tf}`\n🎯 Entry: `{trade['entry']}`\n"
-                        f"💰 TP: `{trade['tp']}`\n📍 SL: `{trade['sl']}`\n📌 Strategy: *Liquidity Grab + Order Block*\n\n"
-                        f"🕐 Signal Time: `{signal_time}`\n🕒 TP Time: `{now_time}`"
+                        f"\u2705 *TP Hit - {symbol}*\n\n"
+                        f"\ud83d\udcc9 Direction: *SELL*\n\ud83d\udd53 Timeframe: `{tf}`\n\ud83c\udfaf Entry: `{trade['entry']}`\n"
+                        f"\ud83d\udcb0 TP: `{trade['tp']}`\n\ud83d\udccd SL: `{trade['sl']}`\n\ud83d\udccc Strategy: *Liquidity Grab + Order Block*\n\n"
+                        f"\ud83d\udd50 Signal Time: `{signal_time}`\n\ud83d\udd52 TP Time: `{now_time}`"
                     )
                     send_telegram_message(msg, TELEGRAM_CHAT_ID)
                     send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
                     del active_trades[key]
                 elif last_price >= trade['sl']:
                     msg = (
-                        f"❌ *SL Hit - {symbol}*
-\n\n📉 Direction: *SELL*\n🕓 Timeframe: `{tf}`\n🎯 Entry: `{trade['entry']}`\n"
-                        f"💥 SL: `{trade['sl']}`\n📌 Strategy: *Liquidity Grab + Order Block*\n\n"
-                        f"🕐 Signal Time: `{signal_time}`\n🕒 SL Time: `{now_time}`"
+                        f"\u274c *SL Hit - {symbol}*\n\n"
+                        f"\ud83d\udcc9 Direction: *SELL*\n\ud83d\udd53 Timeframe: `{tf}`\n\ud83c\udfaf Entry: `{trade['entry']}`\n"
+                        f"\ud83d\udca5 SL: `{trade['sl']}`\n\ud83d\udccc Strategy: *Liquidity Grab + Order Block*\n\n"
+                        f"\ud83d\udd50 Signal Time: `{signal_time}`\n\ud83d\udd52 SL Time: `{now_time}`"
                     )
                     send_telegram_message(msg, TELEGRAM_CHAT_ID)
                     send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
@@ -173,11 +172,10 @@ while True:
                                 'timeframe': tf
                             }
                             msg = (
-                                f"{color} *New {signal} Signal - {symbol}*
-\n\n"
-                                f"🕓 Timeframe: `{tf}`\n📌 Strategy: *Liquidity Grab + Order Block*\n"
-                                f"🎯 Entry: `{entry}`\n💥 SL: `{sl}`\n💰 TP: `{tp}`\n🔺 TSL: `{tsl}`\n"
-                                f"🕐 Signal Time: `{active_trades[key]['signal_time']}`"
+                                f"{color} *New {signal} Signal - {symbol}*\n\n"
+                                f"\ud83d\udd53 Timeframe: `{tf}`\n\ud83d\udccc Strategy: *Liquidity Grab + Order Block*\n"
+                                f"\ud83c\udfaf Entry: `{entry}`\n\ud83d\udca5 SL: `{sl}`\n\ud83d\udcb0 TP: `{tp}`\n\u2b06 TSL: `{tsl}`\n"
+                                f"\ud83d\udd50 Signal Time: `{active_trades[key]['signal_time']}`"
                             )
                             send_telegram_message(msg, TELEGRAM_CHAT_ID)
                             send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
