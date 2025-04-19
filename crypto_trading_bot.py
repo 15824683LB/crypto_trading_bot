@@ -152,9 +152,12 @@ def get_lookback_for_tf(tf):
     return '2 days ago UTC'
 
 # Main loop
-TIMEFRAMES = ['15m', '30m', '4h']
-CRYPTO_SYMBOLS = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT"]
+TIMEFRAMES = ['15m', '1h', '4h']
+CRYPTO_SYMBOLS = ["BTC/USDT", "ETH/USDT", "BNB/USDT:USDT", "XRP/USDT", "ADA/USDT"]
 active_trades = {}
+from collections import defaultdict
+
+last_signal_time = defaultdict(lambda: datetime.now(pytz.timezone("Asia/Kolkata")))
 
 while True:
     try:
