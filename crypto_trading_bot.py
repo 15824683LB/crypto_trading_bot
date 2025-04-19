@@ -18,7 +18,7 @@ TELEGRAM_CHAT_ID = "8191014589"
 TELEGRAM_GROUP_CHAT_ID = "@treadalartindia"
 
 import ccxt
-exchange = ccxt.binance({
+exchange = ccxt.bybit()({
     'enableRateLimit': True
 })
 
