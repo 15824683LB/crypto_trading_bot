@@ -13,9 +13,9 @@ keep_alive()
 print("Crypto bot is running...")
 
 # Telegram Bot Configuration
-TELEGRAM_BOT_TOKEN = "7615583534:AAHaKfWLN7NP83LdmR32i6BfNWqq73nBsAE"
-TELEGRAM_CHAT_ID = "8191014589"
-TELEGRAM_GROUP_CHAT_ID = "@TradeAlertcrypto"
+TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN"
+TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
+TELEGRAM_GROUP_CHAT_ID = "@YOUR_GROUP_CHAT_ID"
 
 # MEXC API Setup
 exchange = ccxt.mexc({
@@ -52,7 +52,7 @@ def fetch_data(symbol, interval, lookback):
     df = df.astype(float)
     return df
 
-# Strategy
+# Strategy - Liquidity Grab + Order Block
 def liquidity_grab_order_block(df):
     df['high_shift'] = df['high'].shift(1)
     df['low_shift'] = df['low'].shift(1)
@@ -172,10 +172,10 @@ while True:
                                 'timeframe': tf
                             }
                             msg = (
-                                f"{color} *New {signal} Signal - {symbol}*\n\n"
-                                f"\ud83d\udd53 Timeframe: `{tf}`\n\ud83d\udccc Strategy: *Liquidity Grab + Order Block*\n"
-                                f"\ud83c\udfaf Entry: `{entry}`\n\ud83d\udca5 SL: `{sl}`\n\ud83d\udcb0 TP: `{tp}`\n\u2b06 TSL: `{tsl}`\n"
-                                f"\ud83d\udd50 Signal Time: `{active_trades[key]['signal_time']}`"
+                                f"{color} New {signal} Signal - {symbol}\n\n"
+                                f"\ud83d\udd53 Timeframe: {tf}\n\ud83d\udccc Strategy: Liquidity Grab + Order Block\n"
+                                f"\ud83c\udfaf Entry: {entry}\n\ud83d\udca5 SL: {sl}\n\ud83d\udcb0 TP: {tp}\n\u2b06 TSL: {tsl}\n"
+                                f"\ud83d\udd50 Signal Time: {active_trades[key]['signal_time']}"
                             )
                             send_telegram_message(msg, TELEGRAM_CHAT_ID)
                             send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
@@ -185,4 +185,3 @@ while True:
         print("Error:", e)
         traceback.print_exc()
         time.sleep(60)
-        
