@@ -59,7 +59,11 @@ open_trades = {}
 # Main Trading Loop (Refresh Every 5 Min)
 while True:
     signal_found = False
+    trade_sent = False  # Flag to ensure we only send one signal per loop
+
     for pair in pairs:
+        if trade_sent:
+            break
         for trade_type, tf in timeframes.items():
             df = fetch_data(pair, tf)
             if df is not None:
@@ -71,9 +75,12 @@ while True:
                     # Save trade details
                     open_trades[pair] = {"entry": entry, "sl": sl, "tp": tp, "tsl": tsl}
                     signal_found = True
-                    break  # One signal at a time
-        if signal_found:
-            break
+                    trade_sent = True
+                    break  # Exit inner loop after signal
+
+    # Only send "No Signal" if no signal was found at all
+    if not signal_found:
+        send_telegram_message("📌 No New Signals in Last 5 Minutes")
 
     # Check if SL or TP is hit
     for pair in list(open_trades.keys()):
@@ -88,9 +95,5 @@ while True:
                 del open_trades[pair]
         except Exception as e:
             print(f"Error fetching price for {pair}: {e}")
-
-    # No Signal Update
-    if not signal_found:
-        send_telegram_message("📌 No New Signals in Last 5 Minutes")
 
     time.sleep(300)  # Refresh Every 5 Minutes
