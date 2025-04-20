@@ -16,7 +16,7 @@ def send_telegram_message(message):
     requests.post(url, data=data)
 
 # Bybit Exchange Setup
-exchange = ccxt.bybit()
+exchange = ccxt.mexc() 
 pairs = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
 timeframes = {"Scalp": "15m", "Intraday": "1h", "Swing": "4h"}
 
