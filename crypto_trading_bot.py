@@ -1,7 +1,10 @@
 import time
+from datetime import datetime
 import ccxt
 import requests
 import pandas as pd
+import os
+import ssl
 import certifi
 from keep_alive import keep_alive
 
@@ -56,12 +59,15 @@ def liquidity_grab_order_block(df):
         return "SELL", entry, sl, tp, tsl, "\U0001F534"
     return "NO SIGNAL", None, None, None, None, None
 
+active_trades = {}
+last_signal_time = time.time()
+
 # Main Loop
 while True:
     signal_found = False
 
-    for stock in ALL_SYMBOLS:
-        if stock in active_trades:
+    for stock in pairs:
+          if stock in active_trades:
             df = fetch_data(stock, "15m")
             if df is not None and not df.empty:
                 last_price = df['close'].iloc[-1]
@@ -122,3 +128,4 @@ while True:
 
     time.sleep(60)
     print("Bot is running 24/7!")
+        
