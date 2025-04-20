@@ -2,6 +2,7 @@ import time
 import ccxt
 import requests
 import pandas as pd
+import certifi
 from keep_alive import keep_alive
 
 keep_alive()
