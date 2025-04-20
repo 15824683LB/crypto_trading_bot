@@ -9,10 +9,9 @@ import certifi
 from keep_alive import keep_alive
 
 keep_alive()
-# Set SSL certificates
 os.environ['SSL_CERT_FILE'] = certifi.where()
 
-# Telegram Bot Setup
+# Telegram Setup
 TELEGRAM_BOT_TOKEN = "7615583534:AAHaKfWLN7NP83LdmR32i6BfNWqq73nBsAE"
 TELEGRAM_CHAT_ID = "8191014589"
 TELEGRAM_GROUP_CHAT_ID = "@TradeAlertcrypto"
@@ -24,8 +23,8 @@ def send_telegram_message(message):
     data["chat_id"] = TELEGRAM_GROUP_CHAT_ID
     requests.post(url, data=data)
 
-# Bybit Exchange Setup
-exchange = ccxt.mexc() 
+# Exchange Setup
+exchange = ccxt.mexc()  # or ccxt.bybit()
 pairs = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
 timeframes = {"Scalp": "15m", "Intraday": "1h", "Swing": "4h"}
 
@@ -38,7 +37,6 @@ def fetch_data(pair, timeframe):
         print(f"{pair} ({timeframe}) data error:", e)
         return None
 
-# Strategy
 def liquidity_grab_order_block(df):
     df['high_shift'] = df['high'].shift(1)
     df['low_shift'] = df['low'].shift(1)
@@ -62,12 +60,11 @@ def liquidity_grab_order_block(df):
 active_trades = {}
 last_signal_time = time.time()
 
-# Main Loop
 while True:
     signal_found = False
 
     for stock in pairs:
-          if stock in active_trades:
+        if stock in active_trades:
             df = fetch_data(stock, "15m")
             if df is not None and not df.empty:
                 last_price = df['close'].iloc[-1]
@@ -76,22 +73,17 @@ while True:
 
                 if trade['direction'] == "BUY":
                     if last_price >= trade['tp']:
-                        send_telegram_message(f"✅ *TP HIT for {stock}*\nTime: `{now_time}`\nPrice: `{last_price}`", TELEGRAM_CHAT_ID)
-                        send_telegram_message(f"✅ *TP HIT for {stock}*\nTime: `{now_time}`\nPrice: `{last_price}`", TELEGRAM_GROUP_CHAT_ID)
+                        send_telegram_message(f"✅ *TP HIT for {stock}*\nTime: `{now_time}`\nPrice: `{last_price}`")
                         del active_trades[stock]
                     elif last_price <= trade['sl']:
-                        send_telegram_message(f"🛑 *SL HIT for {stock}*\nTime: `{now_time}`\nPrice: `{last_price}`", TELEGRAM_CHAT_ID)
-                        send_telegram_message(f"🛑 *SL HIT for {stock}*\nTime: `{now_time}`\nPrice: `{last_price}`", TELEGRAM_GROUP_CHAT_ID)
+                        send_telegram_message(f"🛑 *SL HIT for {stock}*\nTime: `{now_time}`\nPrice: `{last_price}`")
                         del active_trades[stock]
-
                 elif trade['direction'] == "SELL":
                     if last_price <= trade['tp']:
-                        send_telegram_message(f"✅ *TP HIT for {stock}*\nTime: `{now_time}`\nPrice: `{last_price}`", TELEGRAM_CHAT_ID)
-                        send_telegram_message(f"✅ *TP HIT for {stock}*\nTime: `{now_time}`\nPrice: `{last_price}`", TELEGRAM_GROUP_CHAT_ID)
+                        send_telegram_message(f"✅ *TP HIT for {stock}*\nTime: `{now_time}`\nPrice: `{last_price}`")
                         del active_trades[stock]
                     elif last_price >= trade['sl']:
-                        send_telegram_message(f"🛑 *SL HIT for {stock}*\nTime: `{now_time}`\nPrice: `{last_price}`", TELEGRAM_CHAT_ID)
-                        send_telegram_message(f"🛑 *SL HIT for {stock}*\nTime: `{now_time}`\nPrice: `{last_price}`", TELEGRAM_GROUP_CHAT_ID)
+                        send_telegram_message(f"🛑 *SL HIT for {stock}*\nTime: `{now_time}`\nPrice: `{last_price}`")
                         del active_trades[stock]
             continue
 
@@ -106,9 +98,7 @@ while True:
                         f"Type: {label}\nTimeframe: {tf}\nTime: `{signal_time}`\n"
                         f"Entry: `{entry}`\nSL: `{sl}`\nTP: `{tp}`\nTSL: `{tsl}`"
                     )
-                    send_telegram_message(msg, TELEGRAM_CHAT_ID)
-                    send_telegram_message(msg, TELEGRAM_GROUP_CHAT_ID)
-
+                    send_telegram_message(msg)
                     active_trades[stock] = {
                         "signal_time": signal_time,
                         "entry": entry,
@@ -122,10 +112,8 @@ while True:
             break
 
     if not signal_found and (time.time() - last_signal_time > 3600):
-        send_telegram_message("⚠️ No Signal in the Last 1 Hour (Indian Stocks + Index)", TELEGRAM_CHAT_ID)
-        send_telegram_message("⚠️ No Signal in the Last 1 Hour (Indian Stocks + Index)", TELEGRAM_GROUP_CHAT_ID)
+        send_telegram_message("⚠️ No Signal in the Last 1 Hour (Crypto Pairs)")
         last_signal_time = time.time()
 
     time.sleep(60)
     print("Bot is running 24/7!")
-        
