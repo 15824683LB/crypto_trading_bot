@@ -17,7 +17,8 @@ def send_telegram_message(message):
     requests.post(url, data=data)
 
 # Trading Settings
-exchange = ccxt.binance()
+# Bybit Exchange Setup
+exchange = ccxt.bybit()
 pairs = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT"]
 timeframes = {"Intraday": "15m", "Swing": "4h"}  # Only Intraday & Swing
 
