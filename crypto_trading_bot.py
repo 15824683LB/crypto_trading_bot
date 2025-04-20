@@ -14,12 +14,14 @@ os.environ['SSL_CERT_FILE'] = certifi.where()
 # Telegram Setup
 TELEGRAM_BOT_TOKEN = "7615583534:AAHaKfWLN7NP83LdmR32i6BfNWqq73nBsAE"
 TELEGRAM_CHAT_ID = "8191014589"
-TELEGRAM_GROUP_CHAT_ID = "@TradeAlertcrypto"
+TELEGRAM_GROUP_CHAT_ID = "@TradeAlertcrypto"  # Channel username with @
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
     requests.post(url, data=data)
+
+    # Send to Channel
     data["chat_id"] = TELEGRAM_GROUP_CHAT_ID
     requests.post(url, data=data)
 
@@ -30,32 +32,39 @@ timeframes = {"Scalp": "15m", "Intraday": "1h", "Swing": "4h"}
 
 def fetch_data(pair, timeframe):
     try:
-        bars = exchange.fetch_ohlcv(pair, timeframe, limit=20)
+        bars = exchange.fetch_ohlcv(pair, timeframe, limit=100)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         return df
     except Exception as e:
         print(f"{pair} ({timeframe}) data error:", e)
         return None
 
-def liquidity_grab_order_block(df):
-    df['high_shift'] = df['high'].shift(1)
-    df['low_shift'] = df['low'].shift(1)
-    liquidity_grab = (df['high'] > df['high_shift']) & (df['low'] < df['low_shift'])
-    order_block = df['close'] > df['open']
+def macd_rsi_signal(df):
+    df['ema12'] = df['close'].ewm(span=12).mean()
+    df['ema26'] = df['close'].ewm(span=26).mean()
+    df['macd'] = df['ema12'] - df['ema26']
+    df['signal'] = df['macd'].ewm(span=9).mean()
+    df['rsi'] = 100 - (100 / (1 + df['close'].pct_change().rolling(14).mean() / df['close'].pct_change().rolling(14).std()))
 
-    if liquidity_grab.iloc[-1] and order_block.iloc[-1]:
+    df['tr'] = df[['high', 'low', 'close']].max(axis=1) - df[['high', 'low', 'close']].min(axis=1)
+    df['atr'] = df['tr'].rolling(14).mean()
+
+    if df['macd'].iloc[-1] > df['signal'].iloc[-1] and df['rsi'].iloc[-1] > 50:
+        direction = "BUY"
         entry = round(df['close'].iloc[-1], 2)
-        sl = round(df['low'].iloc[-2], 2)
+        sl = round(entry - df['atr'].iloc[-1] * 1.2, 2)
         tp = round(entry + (entry - sl) * 2, 2)
         tsl = round(entry + (entry - sl) * 1.5, 2)
-        return "BUY", entry, sl, tp, tsl, "\U0001F7E2"
-    elif liquidity_grab.iloc[-1] and not order_block.iloc[-1]:
+        return direction, entry, sl, tp, tsl, "\U0001F7E2"
+    elif df['macd'].iloc[-1] < df['signal'].iloc[-1] and df['rsi'].iloc[-1] < 50:
+        direction = "SELL"
         entry = round(df['close'].iloc[-1], 2)
-        sl = round(df['high'].iloc[-2], 2)
+        sl = round(entry + df['atr'].iloc[-1] * 1.2, 2)
         tp = round(entry - (sl - entry) * 2, 2)
         tsl = round(entry - (sl - entry) * 1.5, 2)
-        return "SELL", entry, sl, tp, tsl, "\U0001F534"
-    return "NO SIGNAL", None, None, None, None, None
+        return direction, entry, sl, tp, tsl, "\U0001F534"
+    else:
+        return "NO SIGNAL", None, None, None, None, None
 
 active_trades = {}
 last_signal_time = time.time()
@@ -90,7 +99,7 @@ while True:
         for label, tf in timeframes.items():
             df = fetch_data(stock, tf)
             if df is not None and not df.empty:
-                signal, entry, sl, tp, tsl, emoji = liquidity_grab_order_block(df)
+                signal, entry, sl, tp, tsl, emoji = macd_rsi_signal(df)
                 if signal != "NO SIGNAL":
                     signal_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     msg = (
