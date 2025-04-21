@@ -41,44 +41,54 @@ def fetch_data(pair, timeframe):
 
 
 def calculate_indicators(df):
-    df['rsi'] = ta.momentum.RSIIndicator(close=df['close']).rsi()
-    df['atr'] = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close']).average_true_range()
-    df['volume_ma'] = df['volume'].rolling(window=20).mean()
-    return df
+def smart_money_strategy(df):
+    import ta
 
+    # Indicators
+    df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
+    df['atr'] = ta.volatility.AverageTrueRange(df['high'], df['low'], df['close'], window=14).average_true_range()
+    df['vol_ma'] = df['volume'].rolling(window=20).mean()
 
-def check_buy_sell_signal(df):
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
+    # Order Block levels (Recent 5 candle high/low)
+    df['ob_high'] = df['high'].rolling(window=5).max()
+    df['ob_low'] = df['low'].rolling(window=5).min()
 
-    # Liquidity grab and Order block logic
-    liquidity_grab = last['high'] > prev['high'] and last['low'] < prev['low']
-    order_block_buy = last['close'] > last['open']
-    order_block_sell = last['close'] < last['open']
+    latest = df.iloc[-1]
+    previous = df.iloc[-2]
 
-    # RSI and Volume Confirmation
-    rsi_buy = last['rsi'] > 50
-    rsi_sell = last['rsi'] < 50
-    volume_confirm = last['volume'] > last['volume_ma']
+    # Liquidity Grab Logic:
+    # For Buy: previous high breaches OB high, but closes below it
+    # For Sell: previous low breaches OB low, but closes above it
 
-    signals = []
-    if liquidity_grab and order_block_buy and rsi_buy and volume_confirm:
-        entry = last['close']
-        atr = last['atr']
-        sl = entry - 1.5 * atr
-        tp = entry + (entry - sl) * 2
-        tsl = entry + (entry - sl) * 1.5
-        signals.append(('BUY', entry, sl, tp, tsl))
+    liquidity_grab_buy = previous['high'] > previous['ob_high'] and latest['close'] < previous['ob_high']
+    liquidity_grab_sell = previous['low'] < previous['ob_low'] and latest['close'] > previous['ob_low']
 
-    elif liquidity_grab and order_block_sell and rsi_sell and volume_confirm:
-        entry = last['close']
-        atr = last['atr']
-        sl = entry + 1.5 * atr
-        tp = entry - (sl - entry) * 2
-        tsl = entry - (sl - entry) * 1.5
-        signals.append(('SELL', entry, sl, tp, tsl))
+    # BUY Signal Condition
+    if (
+        liquidity_grab_buy and
+        latest['rsi'] > 50 and
+        latest['volume'] > latest['vol_ma']
+    ):
+        entry = round(latest['close'], 2)
+        sl = round(entry - latest['atr'], 2)
+        tp = round(entry + 2 * (entry - sl), 2)
+        tsl = round(entry + 1.5 * (entry - sl), 2)
+        return "BUY", entry, sl, tp, tsl, "BUY_SIGNAL"
 
-    return signals
+    # SELL Signal Condition
+    elif (
+        liquidity_grab_sell and
+        latest['rsi'] < 50 and
+        latest['volume'] > latest['vol_ma']
+    ):
+        entry = round(latest['close'], 2)
+        sl = round(entry + latest['atr'], 2)
+        tp = round(entry - 2 * (sl - entry), 2)
+        tsl = round(entry - 1.5 * (sl - entry), 2)
+        return "SELL", entry, sl, tp, tsl, "SELL_SIGNAL"
+
+    else:
+        return "NO SIGNAL", None, None, None, None, None
 
 active_trades = {}
 last_signal_time = time.time()
