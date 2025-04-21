@@ -40,6 +40,7 @@ def fetch_data(pair, timeframe):
         return None
 
 def macd_rsi_signal(df):
+    pass
 
 def smart_money_strategy(df):
     import ta
