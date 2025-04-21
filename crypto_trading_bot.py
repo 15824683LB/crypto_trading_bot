@@ -12,7 +12,7 @@ keep_alive()
 os.environ['SSL_CERT_FILE'] = certifi.where()
 
 # Telegram Setup
-TELEGRAM_BOT_TOKEN = "7615583534:AAHaKfWLN7NP83LdmR32i6BfNWqq73nBsAE"
+TELEGRAM_BOT_TOKEN = "7735010030:AAGem8pNxsLsCMxnbdtQllWCh2Ha7A_pBao"
 TELEGRAM_CHAT_ID = "8191014589"
 TELEGRAM_GROUP_CHAT_ID = "@tradealertcrypto"  # Channel username with @
 
