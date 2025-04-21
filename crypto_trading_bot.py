@@ -40,7 +40,6 @@ def fetch_data(pair, timeframe):
         return None
 
 
-def calculate_indicators(df):
 def smart_money_strategy(df):
     import ta
 
@@ -56,14 +55,11 @@ def smart_money_strategy(df):
     latest = df.iloc[-1]
     previous = df.iloc[-2]
 
-    # Liquidity Grab Logic:
-    # For Buy: previous high breaches OB high, but closes below it
-    # For Sell: previous low breaches OB low, but closes above it
-
+    # Liquidity Grab Logic
     liquidity_grab_buy = previous['high'] > previous['ob_high'] and latest['close'] < previous['ob_high']
     liquidity_grab_sell = previous['low'] < previous['ob_low'] and latest['close'] > previous['ob_low']
 
-    # BUY Signal Condition
+    # BUY Signal
     if (
         liquidity_grab_buy and
         latest['rsi'] > 50 and
@@ -75,7 +71,7 @@ def smart_money_strategy(df):
         tsl = round(entry + 1.5 * (entry - sl), 2)
         return "BUY", entry, sl, tp, tsl, "BUY_SIGNAL"
 
-    # SELL Signal Condition
+    # SELL Signal
     elif (
         liquidity_grab_sell and
         latest['rsi'] < 50 and
