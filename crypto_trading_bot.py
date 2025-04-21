@@ -39,54 +39,26 @@ def fetch_data(pair, timeframe):
         print(f"{pair} ({timeframe}) data error:", e)
         return None
 
-def macd_rsi_signal(df):
-    pass
+# Strategy
+def liquidity_grab_order_block(df):
+    df['high_shift'] = df['high'].shift(1)
+    df['low_shift'] = df['low'].shift(1)
+    liquidity_grab = (df['high'] > df['high_shift']) & (df['low'] < df['low_shift'])
+    order_block = df['close'] > df['open']
 
-def smart_money_strategy(df):
-    import ta
-
-    # Indicators
-    df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
-    df['atr'] = ta.volatility.AverageTrueRange(df['high'], df['low'], df['close'], window=14).average_true_range()
-    df['vol_ma'] = df['volume'].rolling(window=20).mean()
-
-    # Order Block levels (Recent 5 candle high/low)
-    df['ob_high'] = df['high'].rolling(window=5).max()
-    df['ob_low'] = df['low'].rolling(window=5).min()
-
-    latest = df.iloc[-1]
-    previous = df.iloc[-2]
-
-    # Liquidity Grab Logic
-    liquidity_grab_buy = previous['high'] > previous['ob_high'] and latest['close'] < previous['ob_high']
-    liquidity_grab_sell = previous['low'] < previous['ob_low'] and latest['close'] > previous['ob_low']
-
-    # BUY Signal
-    if (
-        liquidity_grab_buy and
-        latest['rsi'] > 50 and
-        latest['volume'] > latest['vol_ma']
-    ):
-        entry = round(latest['close'], 2)
-        sl = round(entry - latest['atr'], 2)
-        tp = round(entry + 2 * (entry - sl), 2)
-        tsl = round(entry + 1.5 * (entry - sl), 2)
-        return "BUY", entry, sl, tp, tsl, "BUY_SIGNAL"
-
-    # SELL Signal
-    elif (
-        liquidity_grab_sell and
-        latest['rsi'] < 50 and
-        latest['volume'] > latest['vol_ma']
-    ):
-        entry = round(latest['close'], 2)
-        sl = round(entry + latest['atr'], 2)
-        tp = round(entry - 2 * (sl - entry), 2)
-        tsl = round(entry - 1.5 * (sl - entry), 2)
-        return "SELL", entry, sl, tp, tsl, "SELL_SIGNAL"
-
-    else:
-        return "NO SIGNAL", None, None, None, None, None
+    if liquidity_grab.iloc[-1] and order_block.iloc[-1]:
+        entry = round(df['close'].iloc[-1], 2)
+        sl = round(df['low'].iloc[-2], 2)
+        tp = round(entry + (entry - sl) * 2, 2)
+        tsl = round(entry + (entry - sl) * 1.5, 2)
+        return "BUY", entry, sl, tp, tsl, "\U0001F7E2"
+    elif liquidity_grab.iloc[-1] and not order_block.iloc[-1]:
+        entry = round(df['close'].iloc[-1], 2)
+        sl = round(df['high'].iloc[-2], 2)
+        tp = round(entry - (sl - entry) * 2, 2)
+        tsl = round(entry - (sl - entry) * 1.5, 2)
+        return "SELL", entry, sl, tp, tsl, "\U0001F534"
+    return "NO SIGNAL", None, None, None, None, None
 
 active_trades = {}
 last_signal_time = time.time()
