@@ -39,8 +39,6 @@ def fetch_data(pair, timeframe):
         print(f"{pair} ({timeframe}) data error:", e)
         return None
 
-requests.post(url, data=data)
-
 
 def calculate_indicators(df):
     df['rsi'] = ta.momentum.RSIIndicator(close=df['close']).rsi()
