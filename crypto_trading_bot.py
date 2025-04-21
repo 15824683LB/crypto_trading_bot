@@ -14,7 +14,7 @@ os.environ['SSL_CERT_FILE'] = certifi.where()
 # Telegram Setup
 TELEGRAM_BOT_TOKEN = "7615583534:AAHaKfWLN7NP83LdmR32i6BfNWqq73nBsAE"
 TELEGRAM_CHAT_ID = "8191014589"
-TELEGRAM_GROUP_CHAT_ID = "@TradeAlertcrypto"  # Channel username with @
+TELEGRAM_GROUP_CHAT_ID = "@tradealertcrypto"  # Channel username with @
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -39,32 +39,48 @@ def fetch_data(pair, timeframe):
         print(f"{pair} ({timeframe}) data error:", e)
         return None
 
-def macd_rsi_signal(df):
-    df['ema12'] = df['close'].ewm(span=12).mean()
-    df['ema26'] = df['close'].ewm(span=26).mean()
-    df['macd'] = df['ema12'] - df['ema26']
-    df['signal'] = df['macd'].ewm(span=9).mean()
-    df['rsi'] = 100 - (100 / (1 + df['close'].pct_change().rolling(14).mean() / df['close'].pct_change().rolling(14).std()))
+requests.post(url, data=data)
 
-    df['tr'] = df[['high', 'low', 'close']].max(axis=1) - df[['high', 'low', 'close']].min(axis=1)
-    df['atr'] = df['tr'].rolling(14).mean()
 
-    if df['macd'].iloc[-1] > df['signal'].iloc[-1] and df['rsi'].iloc[-1] > 50:
-        direction = "BUY"
-        entry = round(df['close'].iloc[-1], 2)
-        sl = round(entry - df['atr'].iloc[-1] * 1.2, 2)
-        tp = round(entry + (entry - sl) * 2, 2)
-        tsl = round(entry + (entry - sl) * 1.5, 2)
-        return direction, entry, sl, tp, tsl, "\U0001F7E2"
-    elif df['macd'].iloc[-1] < df['signal'].iloc[-1] and df['rsi'].iloc[-1] < 50:
-        direction = "SELL"
-        entry = round(df['close'].iloc[-1], 2)
-        sl = round(entry + df['atr'].iloc[-1] * 1.2, 2)
-        tp = round(entry - (sl - entry) * 2, 2)
-        tsl = round(entry - (sl - entry) * 1.5, 2)
-        return direction, entry, sl, tp, tsl, "\U0001F534"
-    else:
-        return "NO SIGNAL", None, None, None, None, None
+def calculate_indicators(df):
+    df['rsi'] = ta.momentum.RSIIndicator(close=df['close']).rsi()
+    df['atr'] = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close']).average_true_range()
+    df['volume_ma'] = df['volume'].rolling(window=20).mean()
+    return df
+
+
+def check_buy_sell_signal(df):
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    # Liquidity grab and Order block logic
+    liquidity_grab = last['high'] > prev['high'] and last['low'] < prev['low']
+    order_block_buy = last['close'] > last['open']
+    order_block_sell = last['close'] < last['open']
+
+    # RSI and Volume Confirmation
+    rsi_buy = last['rsi'] > 50
+    rsi_sell = last['rsi'] < 50
+    volume_confirm = last['volume'] > last['volume_ma']
+
+    signals = []
+    if liquidity_grab and order_block_buy and rsi_buy and volume_confirm:
+        entry = last['close']
+        atr = last['atr']
+        sl = entry - 1.5 * atr
+        tp = entry + (entry - sl) * 2
+        tsl = entry + (entry - sl) * 1.5
+        signals.append(('BUY', entry, sl, tp, tsl))
+
+    elif liquidity_grab and order_block_sell and rsi_sell and volume_confirm:
+        entry = last['close']
+        atr = last['atr']
+        sl = entry + 1.5 * atr
+        tp = entry - (sl - entry) * 2
+        tsl = entry - (sl - entry) * 1.5
+        signals.append(('SELL', entry, sl, tp, tsl))
+
+    return signals
 
 active_trades = {}
 last_signal_time = time.time()
