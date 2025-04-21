@@ -39,6 +39,7 @@ def fetch_data(pair, timeframe):
         print(f"{pair} ({timeframe}) data error:", e)
         return None
 
+def macd_rsi_signal(df):
 
 def smart_money_strategy(df):
     import ta
