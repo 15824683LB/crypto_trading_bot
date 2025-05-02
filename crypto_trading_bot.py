@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 # Telegram Config
 BOT_TOKEN = "8100205821:AAE0sGJhnA8ySkuSusEXSf9bYU5OU6sFzVg"
-CHAT_ID = "@SwingTreadingSmartBot"
+CHAT_ID = "@swingtreadingsmartbot"
 
 def send_alert(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
