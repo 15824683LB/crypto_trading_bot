@@ -1,11 +1,10 @@
-
 from keep_alive import keep_alive
 from flask import Flask
 import ccxt
 import pandas as pd
 import requests
 from ta.trend import MACD
-from ta.trend import supertrend_indicator
+
 keep_alive()
 
 app = Flask(__name__)
@@ -30,12 +29,31 @@ def fetch_data(symbol):
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
     return df
 
+# Custom Supertrend implementation
+def supertrend(df, period=10, multiplier=3):
+    hl2 = (df['high'] + df['low']) / 2
+    df['atr'] = df['high'].rolling(period).max() - df['low'].rolling(period).min()
+    df['upperband'] = hl2 + (multiplier * df['atr'])
+    df['lowerband'] = hl2 - (multiplier * df['atr'])
+    df['supertrend'] = df['close']
+
+    for i in range(1, len(df)):
+        if df['close'][i] > df['upperband'][i-1]:
+            df['supertrend'][i] = df['lowerband'][i]
+        elif df['close'][i] < df['lowerband'][i-1]:
+            df['supertrend'][i] = df['upperband'][i]
+        else:
+            df['supertrend'][i] = df['supertrend'][i-1]
+    return df
+
 def analyze(symbol):
     df = fetch_data(symbol)
-    df["macd"] = MACD(df["close"]).macd()
-    df["macd_signal"] = MACD(df["close"]).macd_signal()
-    df["supertrend"] = supertrend_indicator(df["high"], df["low"], df["close"], 10, 3)
+    macd = MACD(df["close"])
+    df["macd"] = macd.macd()
+    df["macd_signal"] = macd.macd_signal()
     df["vwap"] = (df["volume"] * (df["high"] + df["low"] + df["close"]) / 3).cumsum() / df["volume"].cumsum()
+    
+    df = supertrend(df)  # Apply supertrend
 
     latest = df.iloc[-1]
     price = latest["close"]
@@ -64,5 +82,3 @@ def run_bot():
 
 if __name__ == "__main__":
     app.run()
-
-
