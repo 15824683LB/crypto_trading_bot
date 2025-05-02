@@ -10,8 +10,8 @@ keep_alive()
 app = Flask(__name__)
 
 # Telegram Config
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"
+BOT_TOKEN = "8100205821:AAE0sGJhnA8ySkuSusEXSf9bYU5OU6sFzVg"
+CHAT_ID = "@SwingTreadingSmartBot"
 
 def send_alert(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
