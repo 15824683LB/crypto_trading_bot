@@ -8,8 +8,8 @@ from keep_alive import keep_alive
 keep_alive()
 
 # Telegram Config
-TELEGRAM_BOT_TOKEN = "your_telegram_bot_token"
-TELEGRAM_CHAT_ID = "your_telegram_chat_id"
+TELEGRAM_BOT_TOKEN = "8100205821:AAE0sGJhnA8ySkuSusEXSf9bYU5OU6sFzVg"
+TELEGRAM_CHAT_ID = "-1002689167916"
 
 # CoinGecko API Base
 COINGECKO_API = "https://api.coingecko.com/api/v3"
