@@ -1,6 +1,6 @@
 Flask
-ccxt
-pandas
+python-binance
+yfinance
 requests
-ta
-gunicorn
+pytz
+certifi
