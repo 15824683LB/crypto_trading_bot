@@ -2,25 +2,32 @@ import time
 import requests
 import logging
 from datetime import datetime
-from binance.client import Client
 import pytz
-import os
 from keep_alive import keep_alive
 
 keep_alive()
 
 # Telegram Config
-TELEGRAM_BOT_TOKEN = "8100205821:AAE0sGJhnA8ySkuSusEXSf9bYU5OU6sFzVg"
-TELEGRAM_CHAT_ID = "-1002689167916"
+TELEGRAM_BOT_TOKEN = "your_telegram_bot_token"
+TELEGRAM_CHAT_ID = "your_telegram_chat_id"
 
-# Binance API Config
-BINANCE_API_KEY = "your_binance_api_key"
-BINANCE_SECRET_KEY = "your_binance_secret_key"
-client = Client(BINANCE_API_KEY, BINANCE_SECRET_KEY)
+# CoinGecko API Base
+COINGECKO_API = "https://api.coingecko.com/api/v3"
 
-# Crypto symbols
-CRYPTO_PAIRS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT"]
-TIMEFRAMES = {"15m": Client.KLINE_INTERVAL_15MINUTE, "30m": Client.KLINE_INTERVAL_30MINUTE}
+# Crypto pairs (CoinGecko uses IDs not symbols)
+COIN_IDS = {
+    "bitcoin": "BTCUSDT",
+    "ethereum": "ETHUSDT",
+    "binancecoin": "BNBUSDT",
+    "solana": "SOLUSDT",
+    "ripple": "XRPUSDT",
+    "cardano": "ADAUSDT",
+    "dogecoin": "DOGEUSDT",
+    "avalanche-2": "AVAXUSDT",
+    "polkadot": "DOTUSDT",
+    "chainlink": "LINKUSDT"
+}
+
 active_trades = {}
 last_signal_time = time.time()
 kolkata_tz = pytz.timezone("Asia/Kolkata")
@@ -33,22 +40,28 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"Telegram error: {e}")
 
-def fetch_ohlcv(symbol, interval):
+def fetch_ohlcv(coin_id):
     try:
-        klines = client.get_klines(symbol=symbol, interval=interval, limit=50)
+        url = f"{COINGECKO_API}/coins/{coin_id}/market_chart?vs_currency=usd&days=1&interval=hourly"
+        response = requests.get(url)
+        result = response.json()
+        prices = result.get("prices", [])
         data = []
-        for k in klines:
+        for p in prices:
+            timestamp = int(p[0])
+            close = float(p[1])
+            # Simple OHLCV emulation with close as proxy for open/high/low
             data.append({
-                "timestamp": int(k[0]),
-                "open": float(k[1]),
-                "high": float(k[2]),
-                "low": float(k[3]),
-                "close": float(k[4]),
-                "volume": float(k[5])
+                "timestamp": timestamp,
+                "open": close,
+                "high": close * 1.01,
+                "low": close * 0.99,
+                "close": close,
+                "volume": 1000  # fake volume
             })
-        return data
+        return data[-50:]  # last 50
     except Exception as e:
-        logging.error(f"Error fetching {symbol} - {e}")
+        logging.error(f"Error fetching {coin_id}: {e}")
         return None
 
 def calculate_vwap(data):
@@ -97,11 +110,22 @@ def liquidity_grab_with_vwap(data):
 
     return "NO SIGNAL", None, None, None, None, None
 
+def fetch_current_price(coin_id):
+    try:
+        url = f"{COINGECKO_API}/simple/price?ids={coin_id}&vs_currencies=usd"
+        response = requests.get(url).json()
+        return float(response[coin_id]["usd"])
+    except Exception as e:
+        logging.error(f"Error fetching price for {coin_id}: {e}")
+        return None
+
 while True:
     signal_found = False
-    for symbol in CRYPTO_PAIRS:
+    for coin_id, symbol in COIN_IDS.items():
         if symbol in active_trades:
-            price = float(client.get_symbol_ticker(symbol=symbol)['price'])
+            price = fetch_current_price(coin_id)
+            if not price:
+                continue
             trade = active_trades[symbol]
             now_time = datetime.now(kolkata_tz).strftime('%Y-%m-%d %H:%M')
 
@@ -119,29 +143,26 @@ while True:
                 del active_trades[symbol]
             continue
 
-        for label, tf in TIMEFRAMES.items():
-            data = fetch_ohlcv(symbol, tf)
-            if data:
-                signal, entry, sl, tp, tsl, emoji = liquidity_grab_with_vwap(data)
-                if signal != "NO SIGNAL":
-                    signal_time = datetime.now(kolkata_tz).strftime('%Y-%m-%d %H:%M:%S')
-                    msg = (
-                        f"{emoji} *{signal} Signal for {symbol}*\n"
-                        f"Type: {label}\nTime: `{signal_time}`\n"
-                        f"Entry: `{entry}`\nSL: `{sl}`\nTP: `{tp}`\nTSL: `{tsl}`"
-                    )
-                    send_telegram_message(msg)
-                    active_trades[symbol] = {
-                        "signal_time": signal_time,
-                        "entry": entry,
-                        "sl": sl,
-                        "tp": tp,
-                        "direction": signal
-                    }
-                    signal_found = True
-                    break
-        if signal_found:
-            break
+        data = fetch_ohlcv(coin_id)
+        if data:
+            signal, entry, sl, tp, tsl, emoji = liquidity_grab_with_vwap(data)
+            if signal != "NO SIGNAL":
+                signal_time = datetime.now(kolkata_tz).strftime('%Y-%m-%d %H:%M:%S')
+                msg = (
+                    f"{emoji} *{signal} Signal for {symbol}*\n"
+                    f"Time: `{signal_time}`\n"
+                    f"Entry: `{entry}`\nSL: `{sl}`\nTP: `{tp}`\nTSL: `{tsl}`"
+                )
+                send_telegram_message(msg)
+                active_trades[symbol] = {
+                    "signal_time": signal_time,
+                    "entry": entry,
+                    "sl": sl,
+                    "tp": tp,
+                    "direction": signal
+                }
+                signal_found = True
+                break
 
     if not signal_found and (time.time() - last_signal_time > 3600):
         send_telegram_message("⚠️ No Signal in the Last 1 Hour (Crypto Market)")
