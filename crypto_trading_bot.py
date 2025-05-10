@@ -6,13 +6,12 @@ from datetime import datetime
 import ssl
 import certifi
 import os
-from keep_alive import keep_alive
-import keep_alive
+from keep_alive import keep_alive  # Correctly importing the function
 
 # SSL fix
 os.environ['SSL_CERT_FILE'] = certifi.where()
 
-
+# Run Flask server for uptime
 keep_alive()
 
 # Telegram Config
