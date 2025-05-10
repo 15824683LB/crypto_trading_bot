@@ -1,6 +1,4 @@
 Flask
-python-binance
 yfinance
 requests
-pytz
 certifi
