@@ -1,4 +1,7 @@
-Flask
+pandas
+numpy
 yfinance
 requests
-certifi
+pytz
+flask
+tqdm
