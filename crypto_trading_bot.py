@@ -28,8 +28,7 @@ INDIAN_STOCKS = [
 INDICES = ["^NSEI", "^NSEBANK", "^BSESN", "^NSEFIN"]
 
 
-ALL_SYMBOLS = INDIAN_STOCKS+
-INDICES
+ALL_SYMBOLS = INDIAN_STOCKS + INDICES
 # Timeframes
 timeframes = {
     "Intraday 15m": "15m",
