@@ -3,10 +3,20 @@ import pandas as pd
 import datetime
 import requests
 import numpy as np
+import json
+import os
 
 # === Telegram Setup ===
 TELEGRAM_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"
 CHAT_ID = "8191014589"
+
+# === Save Sent Signals ===
+sent_file = "sent_signals.json"
+if os.path.exists(sent_file):
+    with open(sent_file, "r") as f:
+        sent_signals = json.load(f)
+else:
+    sent_signals = {}
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -60,16 +70,31 @@ for name, ticker in pairs.items():
         rsi = 100 - (100 / (1 + rs))
         current_rsi = round(rsi.iloc[-1], 2)
 
-        # ATR (Volatility)
-        tr = (high - low).combine(abs(high - close.shift()), max).combine(abs(low - close.shift()), max)
+        # ATR
+        tr = pd.concat([
+            high - low,
+            abs(high - close.shift()),
+            abs(low - close.shift())
+        ], axis=1).max(axis=1)
         atr = tr.rolling(window=14, min_periods=1).mean().iloc[-1]
 
-        # Buy Signal Logic
+        # === Signal Logic ===
         signal = "WAIT ⚠️"
         if drop_pc >= 2 and current_rsi <= 45:
-            signal = "BUY ZONE ✅"
-            msg = f"📊 *BUY ALERT!* {name}\nDrop: {drop_pc:.2f}% | RSI: {current_rsi}\nPrice: {close.iloc[-1]:.5f}"
-            send_telegram_message(msg)
+            # Determine strength
+            if drop_pc >= 3.5 and current_rsi < 30:
+                signal = "STRONG BUY 💎"
+            else:
+                signal = "BUY ✅"
+
+            # Avoid duplicates
+            key = f"{name}_{datetime.date.today()}"
+            if sent_signals.get(key) != signal:
+                msg = (f"📊 *{signal} ALERT!* {name}\n"
+                       f"Drop: {drop_pc:.2f}% | RSI: {current_rsi}\n"
+                       f"Price: {close.iloc[-1]:.5f}")
+                send_telegram_message(msg)
+                sent_signals[key] = signal
 
         summary.append([
             name, ticker, str(datetime.date.today()),
@@ -84,10 +109,16 @@ for name, ticker in pairs.items():
     except Exception as e:
         print(f"❌ Error fetching {name}: {e}")
 
-# === Summary Table ===
+# === Save updated sent signals ===
+with open(sent_file, "w") as f:
+    json.dump(sent_signals, f)
+
+# === Summary Output ===
 if summary:
-    df = pd.DataFrame(summary, columns=["pair", "ticker", "date", "price", "swing_high",
-                                        "drop_pc", "rsi", "atr", "signal"])
+    df = pd.DataFrame(summary, columns=[
+        "pair", "ticker", "date", "price", "swing_high",
+        "drop_pc", "rsi", "atr", "signal"
+    ])
     print(df.to_string(index=False))
 else:
     print("⚠️ No valid data received.")
