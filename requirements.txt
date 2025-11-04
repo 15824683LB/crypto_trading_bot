@@ -4,4 +4,3 @@ yfinance
 requests
 pytz
 flask
-tqdm
