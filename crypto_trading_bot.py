@@ -5,7 +5,7 @@ import requests
 import numpy as np
 
 # === Telegram Setup ===
-TELEGRAM_TOKEN = "7615583534:AAHaKfWLN7NP83LdmR32i6BfNWqq73nBsAE"
+TELEGRAM_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"
 CHAT_ID = "1002689167916"
 
 def send_telegram_message(message):
@@ -92,4 +92,5 @@ if summary:
     print(df.to_string(index=False))
 else:
     print("⚠️ No valid data received.")
+
 
