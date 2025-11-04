@@ -2,5 +2,5 @@ pandas
 numpy
 yfinance
 requests
-pytz
 flask
+beautifulsoup4
