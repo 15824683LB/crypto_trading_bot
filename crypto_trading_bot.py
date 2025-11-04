@@ -47,19 +47,22 @@ summary = []
 # === Fetch & Analyze ===
 for name, ticker in pairs.items():
     try:
-        data = yf.download(ticker, period="30d", interval="1d", progress=False)
+        data = yf.download(ticker, period="30d", interval="1d", progress=False, auto_adjust=False)
 
         if data.empty:
             print(f"⚠️ No data for {name}")
             continue
 
-        close = data["Close"]
-        high = data["High"]
-        low = data["Low"]
+        close = data["Close"].dropna()
+        high = data["High"].dropna()
+        low = data["Low"].dropna()
 
-        drop_pc = ((high.max() - close.iloc[-1]) / high.max()) * 100
+        # --- Drop Percentage ---
+        swing_high = high.max()
+        latest_close = close.iloc[-1]
+        drop_pc = ((swing_high - latest_close) / swing_high) * 100
 
-        # RSI Calculation
+        # --- RSI Calculation ---
         delta = close.diff()
         gain = delta.clip(lower=0)
         loss = -delta.clip(upper=0)
@@ -69,11 +72,14 @@ for name, ticker in pairs.items():
         rsi = 100 - (100 / (1 + rs))
         current_rsi = round(rsi.iloc[-1], 2)
 
-        # ATR (Volatility)
-        tr = (high - low).combine(abs(high - close.shift()), max).combine(abs(low - close.shift()), max)
+        # --- ATR Calculation ---
+        tr1 = high - low
+        tr2 = abs(high - close.shift())
+        tr3 = abs(low - close.shift())
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         atr = tr.rolling(window=14, min_periods=1).mean().iloc[-1]
 
-        # Buy Signal Logic
+        # --- Signal Logic ---
         signal = "WAIT ⚠️"
         safe = False
 
@@ -84,7 +90,7 @@ for name, ticker in pairs.items():
             signal = "MODERATE BUY ⚠️"
             safe = True
 
-        # Send alert only once per day
+        # --- Prevent Duplicate Alerts (Per Day) ---
         date_key = str(datetime.date.today())
         signal_key = f"{name}_{date_key}"
 
@@ -93,15 +99,15 @@ for name, ticker in pairs.items():
                 f"📊 *{signal}*\n"
                 f"{name}\n"
                 f"Drop: {drop_pc:.2f}% | RSI: {current_rsi}\n"
-                f"Price: {close.iloc[-1]:.5f}"
+                f"Price: {latest_close:.5f}"
             )
             send_telegram_message(msg)
             sent_signals[signal_key] = True
 
         summary.append([
             name, ticker, str(datetime.date.today()),
-            round(close.iloc[-1], 5),
-            round(high.max(), 5),
+            round(latest_close, 5),
+            round(swing_high, 5),
             round(drop_pc, 2),
             current_rsi,
             round(atr, 5),
