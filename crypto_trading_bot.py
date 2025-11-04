@@ -92,3 +92,4 @@ if summary:
     print(df.to_string(index=False))
 else:
     print("⚠️ No valid data received.")
+
