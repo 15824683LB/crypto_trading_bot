@@ -1,130 +1,173 @@
 import yfinance as yf
-import pandas as pd
-import datetime
-import requests
-import numpy as np
-import json
-import os
 
-# === Telegram Setup ===
+import pandas as pd
+
+import datetime
+
+import requests
+
+import numpy as np
+
+=== Telegram Setup ===
+
 TELEGRAM_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"
+
 CHAT_ID = "8191014589"
 
 def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    try:
-        requests.post(url, data=data)
-        print("✅ Telegram Alert Sent!")
-    except Exception as e:
-        print("⚠️ Telegram Send Failed:", e)
 
-# === Forex Pairs ===
+url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+
+data = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
+
+try:
+
+    requests.post(url, data=data)
+
+    print("✅ Telegram Alert Sent!")
+
+except Exception as e:
+
+    print("⚠️ Telegram Send Failed:", e)
+
+=== Forex Pairs ===
+
 pairs = {
-    "EUR/USD": "EURUSD=X",
-    "GBP/USD": "GBPUSD=X",
-    "USD/JPY": "USDJPY=X",
-    "AUD/USD": "AUDUSD=X",
-    "USD/CAD": "USDCAD=X",
-    "NZD/USD": "NZDUSD=X",
-    "XAU/USD": "GC=F",
-    "XAG/USD": "SI=F",
-    "EUR/JPY": "EURJPY=X",
-    "GBP/JPY": "GBPJPY=X"
-}
 
-# === Load Previously Sent Signals ===
-if os.path.exists("sent_signals.json"):
-    with open("sent_signals.json", "r") as f:
-        sent_signals = json.load(f)
-else:
-    sent_signals = {}
+"EUR/USD": "EURUSD=X",
+
+"GBP/USD": "GBPUSD=X",
+
+"USD/JPY": "USDJPY=X",
+
+"AUD/USD": "AUDUSD=X",
+
+"USD/CAD": "USDCAD=X",
+
+"NZD/USD": "NZDUSD=X",
+
+"XAU/USD": "GC=F",
+
+"XAG/USD": "SI=F",
+
+"EUR/JPY": "EURJPY=X",
+
+"GBP/JPY": "GBPJPY=X"
+
+}
 
 print(f"📈 Buy-the-Dip Scanner - Running at {datetime.datetime.utcnow():%Y-%m-%d %H:%M UTC}\n")
 
 summary = []
 
-# === Fetch & Analyze ===
+=== Fetch & Analyze ===
+
 for name, ticker in pairs.items():
-    try:
-        data = yf.download(ticker, period="30d", interval="1d", progress=False, auto_adjust=False)
 
-        if data.empty:
-            print(f"⚠️ No data for {name}")
-            continue
+try:
 
-        close = data["Close"].dropna()
-        high = data["High"].dropna()
-        low = data["Low"].dropna()
+    data = yf.download(ticker, period="30d", interval="1d", progress=False)
 
-        # --- Drop Percentage ---
-        swing_high = high.max()
-        latest_close = close.iloc[-1]
-        drop_pc = ((swing_high - latest_close) / swing_high) * 100
 
-        # --- RSI Calculation ---
-        delta = close.diff()
-        gain = delta.clip(lower=0)
-        loss = -delta.clip(upper=0)
-        avg_gain = gain.rolling(window=14, min_periods=1).mean()
-        avg_loss = loss.rolling(window=14, min_periods=1).mean()
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-        current_rsi = round(rsi.iloc[-1], 2)
 
-        # --- ATR Calculation ---
-        tr1 = high - low
-        tr2 = abs(high - close.shift())
-        tr3 = abs(low - close.shift())
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.rolling(window=14, min_periods=1).mean().iloc[-1]
+    if data.empty:
 
-        # --- Signal Logic ---
-        signal = "WAIT ⚠️"
-        safe = False
+        print(f"⚠️ No data for {name}")
 
-        if 2 <= drop_pc <= 6 and 35 <= current_rsi <= 45:
-            signal = "SAFE BUY ✅"
-            safe = True
-        elif drop_pc > 6 and current_rsi < 35:
-            signal = "MODERATE BUY ⚠️"
-            safe = True
+        continue
 
-        # --- Prevent Duplicate Alerts (Per Day) ---
-        date_key = str(datetime.date.today())
-        signal_key = f"{name}_{date_key}"
 
-        if safe and signal_key not in sent_signals:
-            msg = (
-                f"📊 *{signal}*\n"
-                f"{name}\n"
-                f"Drop: {drop_pc:.2f}% | RSI: {current_rsi}\n"
-                f"Price: {latest_close:.5f}"
-            )
-            send_telegram_message(msg)
-            sent_signals[signal_key] = True
 
-        summary.append([
-            name, ticker, str(datetime.date.today()),
-            round(latest_close, 5),
-            round(swing_high, 5),
-            round(drop_pc, 2),
-            current_rsi,
-            round(atr, 5),
-            signal
-        ])
+    # Ensure data is 1D
 
-    except Exception as e:
-        print(f"❌ Error fetching {name}: {e}")
+    close = pd.Series(np.squeeze(data["Close"].values), index=data.index)
 
-# === Save Sent Signals ===
-with open("sent_signals.json", "w") as f:
-    json.dump(sent_signals, f)
+    high = pd.Series(np.squeeze(data["High"].values), index=data.index)
 
-# === Summary Table ===
+    low = pd.Series(np.squeeze(data["Low"].values), index=data.index)
+
+
+
+    drop_pc = ((high.max() - close.iloc[-1]) / high.max()) * 100
+
+
+
+    # RSI Calculation
+
+    delta = close.diff()
+
+    gain = delta.clip(lower=0)
+
+    loss = -delta.clip(upper=0)
+
+    avg_gain = gain.rolling(window=14, min_periods=1).mean()
+
+    avg_loss = loss.rolling(window=14, min_periods=1).mean()
+
+    rs = avg_gain / avg_loss
+
+    rsi = 100 - (100 / (1 + rs))
+
+    current_rsi = round(rsi.iloc[-1], 2)
+
+
+
+    # ATR (Volatility)
+
+    tr = (high - low).combine(abs(high - close.shift()), max).combine(abs(low - close.shift()), max)
+
+    atr = tr.rolling(window=14, min_periods=1).mean().iloc[-1]
+
+
+
+    # Buy Signal Logic
+
+    signal = "WAIT ⚠️"
+
+    if drop_pc >= 2 and current_rsi <= 45:
+
+        signal = "BUY ZONE ✅"
+
+        msg = f"📊 *BUY ALERT!* {name}\nDrop: {drop_pc:.2f}% | RSI: {current_rsi}\nPrice: {close.iloc[-1]:.5f}"
+
+        send_telegram_message(msg)
+
+
+
+    summary.append([
+
+        name, ticker, str(datetime.date.today()),
+
+        round(close.iloc[-1], 5),
+
+        round(high.max(), 5),
+
+        round(drop_pc, 2),
+
+        current_rsi,
+
+        round(atr, 5),
+
+        signal
+
+    ])
+
+
+
+except Exception as e:
+
+    print(f"❌ Error fetching {name}: {e}")
+
+=== Summary Table ===
+
 if summary:
-    df = pd.DataFrame(summary, columns=["pair", "ticker", "date", "price", "swing_high",
-                                        "drop_pc", "rsi", "atr", "signal"])
-    print(df.to_string(index=False))
+
+df = pd.DataFrame(summary, columns=["pair", "ticker", "date", "price", "swing_high",
+
+                                    "drop_pc", "rsi", "atr", "signal"])
+
+print(df.to_string(index=False))
+
 else:
-    print("⚠️ No valid data received.")
+
+print("⚠️ No valid data received.")
