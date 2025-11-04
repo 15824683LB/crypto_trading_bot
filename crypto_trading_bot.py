@@ -6,7 +6,7 @@ import numpy as np
 
 # === Telegram Setup ===
 TELEGRAM_TOKEN = "7615583534:AAHaKfWLN7NP83LdmR32i6BfNWqq73nBsAE"
-CHAT_ID = "1002689167916"
+CHAT_ID = "8191014589"
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -96,3 +96,4 @@ if len(summary) > 0:
     print(df.to_string(index=False))
 else:
     print("⚠️ No valid data received.")
+
