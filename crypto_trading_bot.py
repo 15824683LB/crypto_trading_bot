@@ -3,6 +3,8 @@ import pandas as pd
 import datetime
 import requests
 import numpy as np
+import json
+import os
 
 # === Telegram Setup ===
 TELEGRAM_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"
@@ -31,6 +33,13 @@ pairs = {
     "GBP/JPY": "GBPJPY=X"
 }
 
+# === Load Previously Sent Signals ===
+if os.path.exists("sent_signals.json"):
+    with open("sent_signals.json", "r") as f:
+        sent_signals = json.load(f)
+else:
+    sent_signals = {}
+
 print(f"📈 Buy-the-Dip Scanner - Running at {datetime.datetime.utcnow():%Y-%m-%d %H:%M UTC}\n")
 
 summary = []
@@ -44,10 +53,9 @@ for name, ticker in pairs.items():
             print(f"⚠️ No data for {name}")
             continue
 
-        # Ensure data is 1D
-        close = pd.Series(np.squeeze(data["Close"].values), index=data.index)
-        high = pd.Series(np.squeeze(data["High"].values), index=data.index)
-        low = pd.Series(np.squeeze(data["Low"].values), index=data.index)
+        close = data["Close"]
+        high = data["High"]
+        low = data["Low"]
 
         drop_pc = ((high.max() - close.iloc[-1]) / high.max()) * 100
 
@@ -67,10 +75,28 @@ for name, ticker in pairs.items():
 
         # Buy Signal Logic
         signal = "WAIT ⚠️"
-        if drop_pc >= 2 and current_rsi <= 45:
-            signal = "BUY ZONE ✅"
-            msg = f"📊 *BUY ALERT!* {name}\nDrop: {drop_pc:.2f}% | RSI: {current_rsi}\nPrice: {close.iloc[-1]:.5f}"
+        safe = False
+
+        if 2 <= drop_pc <= 6 and 35 <= current_rsi <= 45:
+            signal = "SAFE BUY ✅"
+            safe = True
+        elif drop_pc > 6 and current_rsi < 35:
+            signal = "MODERATE BUY ⚠️"
+            safe = True
+
+        # Send alert only once per day
+        date_key = str(datetime.date.today())
+        signal_key = f"{name}_{date_key}"
+
+        if safe and signal_key not in sent_signals:
+            msg = (
+                f"📊 *{signal}*\n"
+                f"{name}\n"
+                f"Drop: {drop_pc:.2f}% | RSI: {current_rsi}\n"
+                f"Price: {close.iloc[-1]:.5f}"
+            )
             send_telegram_message(msg)
+            sent_signals[signal_key] = True
 
         summary.append([
             name, ticker, str(datetime.date.today()),
@@ -85,6 +111,10 @@ for name, ticker in pairs.items():
     except Exception as e:
         print(f"❌ Error fetching {name}: {e}")
 
+# === Save Sent Signals ===
+with open("sent_signals.json", "w") as f:
+    json.dump(sent_signals, f)
+
 # === Summary Table ===
 if summary:
     df = pd.DataFrame(summary, columns=["pair", "ticker", "date", "price", "swing_high",
@@ -92,6 +122,3 @@ if summary:
     print(df.to_string(index=False))
 else:
     print("⚠️ No valid data received.")
-
-
-
