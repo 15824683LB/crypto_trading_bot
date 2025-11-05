@@ -45,7 +45,6 @@ pairs = {
 
 print(f"📈 Buy-the-Dip Scanner Started - {datetime.datetime.utcnow():%Y-%m-%d %H:%M UTC}\n")
 
-# === Analysis Function ===
 def check_signals():
     global sent_signals
     summary = []
@@ -62,7 +61,10 @@ def check_signals():
             high = data["High"]
             low = data["Low"]
 
-            drop_pc = ((high.max() - close.iloc[-1]) / high.max()) * 100
+            # Calculate drop %
+            swing_high = float(high.max())
+            current_price = float(close.iloc[-1])
+            drop_pc = ((swing_high - current_price) / swing_high) * 100
 
             # === RSI ===
             delta = close.diff()
@@ -72,7 +74,7 @@ def check_signals():
             avg_loss = loss.rolling(window=14, min_periods=1).mean()
             rs = avg_gain / avg_loss
             rsi = 100 - (100 / (1 + rs))
-            current_rsi = round(rsi.iloc[-1], 2)
+            current_rsi = float(round(rsi.iloc[-1], 2))
 
             # === Signal Logic ===
             signal = None
@@ -81,38 +83,39 @@ def check_signals():
             elif 2 <= drop_pc < 3.5 and 30 < current_rsi <= 45:
                 signal = "MODERATE BUY ✅"
 
+            # === Avoid duplicate alerts ===
             if signal:
                 key = f"{name}_{datetime.date.today()}"
                 if sent_signals.get(key) != signal:
-                    msg = (f"📊 *{signal} ALERT!* {name}\n"
+                    msg = (f"Omstrading:\n📊 *{signal} ALERT!* {name}\n"
                            f"Drop: {drop_pc:.2f}% | RSI: {current_rsi}\n"
-                           f"Price: {close.iloc[-1]:.5f}")
+                           f"Price: {current_price:.5f}")
                     send_telegram_message(msg)
                     sent_signals[key] = signal
 
             summary.append([
-                name, round(close.iloc[-1], 5), round(drop_pc, 2),
+                name, round(current_price, 5), round(drop_pc, 2),
                 current_rsi, signal or "WAIT ⚠️"
             ])
 
         except Exception as e:
             print(f"❌ Error fetching {name}: {e}")
 
-    # Save updates
+    # Save updated sent signals
     with open(sent_file, "w") as f:
         json.dump(sent_signals, f)
 
-    df = pd.DataFrame(summary, columns=["Pair", "Price", "Drop %", "RSI", "Signal"])
-    print(df.to_string(index=False))
-
+    if summary:
+        df = pd.DataFrame(summary, columns=["Pair", "Price", "Drop %", "RSI", "Signal"])
+        print(df.to_string(index=False))
+    else:
+        print("⚠️ No valid data received.")
 
 # === Run once ===
 check_signals()
 
-# === Optional: Auto-refresh every hour ===
-# Uncomment below lines if you want 24×7 scanner on Replit / Render
-
+# === Optional auto loop (uncomment for 24/7) ===
 # while True:
 #     check_signals()
-#     print("\n⏳ Waiting 1 hour before next scan...\n")
-#     time.sleep(3600)
+#     print("\n⏳ Waiting 30 minutes before next scan...\n")
+#     time.sleep(1800)
