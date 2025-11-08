@@ -1,7 +1,5 @@
-pandas
-numpy
 yfinance
+pandas
 requests
-flask
-beautifulsoup4
 ta
+flask
