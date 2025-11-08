@@ -4,3 +4,4 @@ yfinance
 requests
 flask
 beautifulsoup4
+ta
