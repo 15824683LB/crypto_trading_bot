@@ -1,175 +1,117 @@
+# === Forex + Crypto Strategy Bot with Telegram Alert + Render Keep-Alive ===
+
 import yfinance as yf
 import pandas as pd
-import datetime
-import requests
 import numpy as np
-import json
-import os
 import time
+import requests
 from flask import Flask
-import threading
+from threading import Thread
 
-# === Telegram Setup ===
-TELEGRAM_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"
-CHAT_ID = "8191014589"
+# ========== TELEGRAM CONFIG ==========
+TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
 
-# === File to store sent signals ===
-SENT_FILE = "sent_signals.json"
-if os.path.exists(SENT_FILE):
-    with open(SENT_FILE, "r") as f:
-        sent_signals = json.load(f)
-else:
-    sent_signals = {}
-
-def send_telegram_message(message: str):
-    """Send message to Telegram"""
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
+def send_telegram_message(message):
     try:
-        response = requests.post(url, data=data, timeout=10)
-        if response.status_code == 200:
-            print("✅ Telegram Alert Sent!")
-        else:
-            print(f"⚠️ Telegram Error {response.status_code}: {response.text}")
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+        requests.post(url, data=data)
     except Exception as e:
-        print("⚠️ Telegram Send Failed:", e)
+        print("Telegram Error:", e)
 
-# === Forex Pairs ===
-pairs = {
-    "EUR/USD": "EURUSD=X",
-    "GBP/USD": "GBPUSD=X",
-    "USD/JPY": "USDJPY=X",
-    "AUD/USD": "AUDUSD=X",
-    "USD/CAD": "USDCAD=X",
-    "NZD/USD": "NZDUSD=X",
-    "XAU/USD": "GC=F",
-    "XAG/USD": "SI=F",
-    "EUR/JPY": "EURJPY=X",
-    "GBP/JPY": "GBPJPY=X"
-}
+# ========== STRATEGY SETTINGS ==========
+crypto_pairs = ["BTC-USD", "ETH-USD", "BNB-USD", "SOL-USD", "XRP-USD", "ADA-USD", "DOGE-USD", "AVAX-USD", "DOT-USD", "LTC-USD"]
+forex_pairs = ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X", "USDCHF=X", "NZDUSD=X", "EURJPY=X", "GBPJPY=X", "AUDJPY=X"]
 
-print(f"\n📊 High Accuracy Swing Trading Scanner Started - {datetime.datetime.utcnow():%Y-%m-%d %H:%M UTC}\n")
+# ========== STRATEGY FUNCTION ==========
+def get_signal(ticker):
+    try:
+        # --- Fetch data ---
+        daily = yf.download(ticker, period="90d", interval="1d", auto_adjust=True, progress=False)
+        hourly = yf.download(ticker, period="7d", interval="1h", auto_adjust=True, progress=False)
 
-def calculate_rsi(close, period=14):
-    delta = close.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.rolling(window=period, min_periods=1).mean()
-    avg_loss = loss.rolling(window=period, min_periods=1).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+        if daily.empty or hourly.empty:
+            print(f"⚠️ Data missing for {ticker}")
+            return None
 
-def calculate_macd(close):
-    ema12 = close.ewm(span=12, adjust=False).mean()
-    ema26 = close.ewm(span=26, adjust=False).mean()
-    macd = ema12 - ema26
-    signal = macd.ewm(span=9, adjust=False).mean()
-    return macd, signal
+        # --- Moving Averages ---
+        daily["EMA8"] = daily["Close"].ewm(span=8, adjust=False).mean()
+        daily["EMA16"] = daily["Close"].ewm(span=16, adjust=False).mean()
 
-def check_signals():
-    global sent_signals
-    summary = []
+        # --- Trend direction ---
+        trend = "UP" if daily["EMA8"].iloc[-1] > daily["EMA16"].iloc[-1] else "DOWN"
 
-    for name, ticker in pairs.items():
-        try:
-            data = yf.download(ticker, period="120d", interval="1d", progress=False)
-            if data.empty or len(data) < 30:
-                print(f"⚠️ Not enough data for {name}")
-                continue
+        # --- RSI ---
+        delta = hourly["Close"].diff()
+        gain = np.where(delta > 0, delta, 0)
+        loss = np.where(delta < 0, -delta, 0)
+        avg_gain = pd.Series(gain).rolling(window=14).mean()
+        avg_loss = pd.Series(loss).rolling(window=14).mean()
+        rs = avg_gain / avg_loss
+        hourly["RSI"] = 100 - (100 / (1 + rs))
 
-            close = data["Close"]
-            high = data["High"]
-            low = data["Low"]
+        # --- ADX ---
+        df = daily.copy()
+        df["TR"] = np.maximum(df["High"] - df["Low"], np.maximum(abs(df["High"] - df["Close"].shift()), abs(df["Low"] - df["Close"].shift())))
+        df["+DM"] = np.where((df["High"] - df["High"].shift()) > (df["Low"].shift() - df["Low"]), np.maximum(df["High"] - df["High"].shift(), 0), 0)
+        df["-DM"] = np.where((df["Low"].shift() - df["Low"]) > (df["High"] - df["High"].shift()), np.maximum(df["Low"].shift() - df["Low"], 0), 0)
+        df["+DI"] = 100 * (df["+DM"].ewm(alpha=1/14).mean() / df["TR"].ewm(alpha=1/14).mean())
+        df["-DI"] = 100 * (df["-DM"].ewm(alpha=1/14).mean() / df["TR"].ewm(alpha=1/14).mean())
+        df["DX"] = (abs(df["+DI"] - df["-DI"]) / abs(df["+DI"] + df["-DI"])) * 100
+        adx = df["DX"].ewm(alpha=1/14).mean().iloc[-1]
 
-            # === Indicators ===
-            rsi = calculate_rsi(close)
-            ema50 = close.ewm(span=50, adjust=False).mean()
-            macd, macd_signal = calculate_macd(close)
+        # --- Signal logic ---
+        rsi = hourly["RSI"].iloc[-1]
+        signal = None
 
-            current_price = close.iloc[-1]
-            swing_high = high.max()
-            drop_pc = ((swing_high - current_price) / swing_high) * 100
-            current_rsi = rsi.iloc[-1]
-            current_ema50 = ema50.iloc[-1]
+        if adx < 20:
+            signal = f"{ticker}: Sideways (ADX={adx:.2f})"
+        else:
+            if trend == "UP" and 30 <= rsi <= 35:
+                signal = f"🚀 BUY Signal on {ticker}\nTrend: {trend}\nRSI: {rsi:.2f}\nADX: {adx:.2f}"
+            elif trend == "DOWN" and 65 <= rsi <= 75:
+                signal = f"⚠️ SELL Signal on {ticker}\nTrend: {trend}\nRSI: {rsi:.2f}\nADX: {adx:.2f}"
+            else:
+                signal = f"{ticker}: No signal"
 
-            # === MACD confirmation ===
-            prev_macd = macd.iloc[-2]
-            prev_signal = macd_signal.iloc[-2]
-            curr_macd = macd.iloc[-1]
-            curr_signal = macd_signal.iloc[-1]
+        print(signal)
+        return signal
 
-            macd_cross_up = prev_macd < prev_signal and curr_macd > curr_signal
+    except Exception as e:
+        print(f"Error fetching {ticker}: {e}")
+        return None
 
-            # === Signal Logic ===
-            signal = None
-            if (
-                drop_pc >= 3
-                and current_rsi <= 35
-                and current_price > current_ema50
-                and macd_cross_up
-            ):
-                signal = "💎 STRONG BUY (RSI+EMA+MACD Confirmed)"
-            elif (
-                1.5 <= drop_pc < 3
-                and 35 < current_rsi <= 45
-                and current_price > current_ema50
-                and macd_cross_up
-            ):
-                signal = "✅ MODERATE BUY (Trend Positive)"
 
-            # === Avoid duplicate alerts ===
-            key = f"{name}_{datetime.date.today()}"
-            if signal and sent_signals.get(key) != signal:
-                msg = (f"*Omstrading Swing Alert 📈*\n\n"
-                       f"Pair: {name}\n"
-                       f"Signal: *{signal}*\n"
-                       f"Price: {current_price:.5f}\n"
-                       f"Drop: {drop_pc:.2f}%\n"
-                       f"RSI: {current_rsi:.2f}\n"
-                       f"EMA(50): {current_ema50:.5f}\n"
-                       f"MACD Cross: {'✅ Yes' if macd_cross_up else '❌ No'}\n\n"
-                       f"📆 {datetime.date.today()}")
-                send_telegram_message(msg)
-                sent_signals[key] = signal
+# ========== MAIN LOOP ==========
+def main():
+    print("🚀 Starting Forex + Crypto Strategy Scanner...")
+    while True:
+        for ticker in crypto_pairs + forex_pairs:
+            signal = get_signal(ticker)
+            if signal and ("BUY" in signal or "SELL" in signal):
+                send_telegram_message(signal)
+            time.sleep(2)
+        print("🔁 Cycle complete. Waiting 15 minutes...")
+        time.sleep(900)  # 15 min delay between scans
 
-            summary.append([
-                name,
-                round(current_price, 5),
-                round(drop_pc, 2),
-                round(current_rsi, 2),
-                "UP" if macd_cross_up else "DOWN",
-                signal or "WAIT ⚠️"
-            ])
 
-        except Exception as e:
-            print(f"❌ Error fetching {name}: {e}")
-
-    # Save updated signals
-    with open(SENT_FILE, "w") as f:
-        json.dump(sent_signals, f)
-
-    if summary:
-        df = pd.DataFrame(summary, columns=["Pair", "Price", "Drop%", "RSI", "MACD", "Signal"])
-        print(df.to_string(index=False))
-    else:
-        print("⚠️ No valid data received.")
-
-# === Keep Alive Flask Server ===
-app = Flask(__name__)
+# ========== KEEP-ALIVE SERVER ==========
+app = Flask('')
 
 @app.route('/')
 def home():
-    return "✅ Swing Trading Bot is Running!"
+    return "✅ Trading Bot is running 24/7 on Render!"
 
-def run_keep_alive():
-    app.run(host='0.0.0.0', port=10000)
+def run():
+    app.run(host='0.0.0.0', port=8080)
 
-# === Start Keep Alive Thread ===
-threading.Thread(target=run_keep_alive).start()
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
 
-# === Auto Loop (Every 1 Hour) ===
-while True:
-    check_signals()
-    print("\n⏳ Waiting 1 hour before next scan...\n")
-    time.sleep(3600)
+
+# ========== START ==========
+if __name__ == "__main__":
+    keep_alive()
+    main()
