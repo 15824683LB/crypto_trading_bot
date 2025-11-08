@@ -3,6 +3,8 @@ import numpy as np
 import yfinance as yf
 import time
 import requests
+from flask import Flask
+import threading
 
 # ============= USER SETTINGS =============
 TELEGRAM_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"
@@ -102,3 +104,4 @@ while True:
 
     print("⏳ Waiting 30 minutes before next scan...")
     time.sleep(1800)
+
