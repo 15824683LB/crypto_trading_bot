@@ -5,6 +5,17 @@ import time
 import requests
 from flask import Flask
 import threading
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Crypto Scanner Running ✅"
+
+def run_flask():
+    app.run(host='0.0.0.0', port=10000)
+
+# Flask সার্ভার আলাদা থ্রেডে চালাও
+threading.Thread(target=run_flask).start()
 
 # ============= USER SETTINGS =============
 TELEGRAM_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"
@@ -104,4 +115,5 @@ while True:
 
     print("⏳ Waiting 30 minutes before next scan...")
     time.sleep(1800)
+
 
