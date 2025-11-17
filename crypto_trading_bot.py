@@ -3,6 +3,11 @@ import pandas as pd
 import time
 import requests
 from datetime import datetime
+from flask import Flask
+import threading
+
+app = Flask(__name__)
+
 
 # ==========================
 # USER SETTINGS
@@ -106,3 +111,4 @@ while True:
         print("No Trade | Waiting...")
 
     time.sleep(60)   # every 1 minute check
+
