@@ -1,119 +1,108 @@
-import pandas as pd
-import numpy as np
 import yfinance as yf
+import pandas as pd
 import time
 import requests
-from flask import Flask
-import threading
-app = Flask(__name__)
+from datetime import datetime
 
-@app.route('/')
-def home():
-    return "Crypto Scanner Running ✅"
+# ==========================
+# USER SETTINGS
+# ==========================
 
-def run_flask():
-    app.run(host='0.0.0.0', port=10000)
-
-# Flask সার্ভার আলাদা থ্রেডে চালাও
-threading.Thread(target=run_flask).start()
-
-# ============= USER SETTINGS =============
+PAIR = "BTC-USD"
 TELEGRAM_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"
 CHAT_ID = "8191014589"
 
-CRYPTO_PAIRS = ["BTC-USD","ETH-USD","BNB-USD","SOL-USD","XRP-USD","ADA-USD","DOGE-USD","AVAX-USD","DOT-USD","LTC-USD"]
-FOREX_PAIRS  = ["EURUSD=X","GBPUSD=X","USDJPY=X","AUDUSD=X","USDCAD=X","USDCHF=X","NZDUSD=X","EURJPY=X","GBPJPY=X","AUDJPY=X"]
+# Intraday allowed trading time (24-hr)
+START_TIME = "18:00"
+END_TIME = "23:00"
 
-# =========================================
-
+# ==========================
+# TELEGRAM ALERT FUNCTION
+# ==========================
 def send_telegram(msg):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    data = {"chat_id": CHAT_ID, "text": msg}
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        params = {"chat_id": CHAT_ID, "text": msg}
-        requests.get(url, params=params)
+        requests.post(url, data=data)
     except:
-        print("⚠️ Telegram Error")
+        print("Telegram Error!")
 
-def get_data(ticker, period="90d", interval="1h"):
-    try:
-        df = yf.download(ticker, period=period, interval=interval)
-        df = df[["Close","High","Low"]].dropna()
-        df["Close"] = df["Close"].astype(float)
-        return df
-    except Exception as e:
-        print(f"Error fetching {ticker}: {e}")
-        return None
 
-# --- Indicators ---
-def EMA(series, period):
-    return series.ewm(span=period, adjust=False).mean()
+# ==========================
+# SUPER TREND INDICATOR
+# ==========================
+def supertrend(df, period=10, multiplier=3):
+    hl2 = (df['High'] + df['Low']) / 2
+    df['atr'] = df['Close'].rolling(period).std() * multiplier
 
-def RSI(series, period=14):
-    delta = series.diff()
-    gain = (delta.where(delta>0,0)).rolling(period).mean()
-    loss = (-delta.where(delta<0,0)).rolling(period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1+rs))
+    df['upperband'] = hl2 + df['atr']
+    df['lowerband'] = hl2 - df['atr']
 
-def ADX(df, n=14):
-    df["TR"] = np.maximum((df["High"] - df["Low"]),
-                   np.maximum(abs(df["High"] - df["Close"].shift(1)),
-                              abs(df["Low"] - df["Close"].shift(1))))
-    df["+DM"] = np.where((df["High"] - df["High"].shift(1)) > (df["Low"].shift(1) - df["Low"]),
-                          df["High"] - df["High"].shift(1), 0)
-    df["-DM"] = np.where((df["Low"].shift(1) - df["Low"]) > (df["High"] - df["High"].shift(1)),
-                          df["Low"].shift(1) - df["Low"], 0)
-    df["+DI"] = 100 * (df["+DM"].ewm(alpha=1/n).mean() / df["TR"].ewm(alpha=1/n).mean())
-    df["-DI"] = 100 * (df["-DM"].ewm(alpha=1/n).mean() / df["TR"].ewm(alpha=1/n).mean())
-    df["ADX"] = 100 * abs((df["+DI"] - df["-DI"]) / (df["+DI"] + df["-DI"])).ewm(alpha=1/n).mean()
-    return df["ADX"]
+    df['supertrend'] = 0
+    for i in range(1, len(df)):
+        if df['Close'][i] > df['upperband'][i-1]:
+            df['supertrend'][i] = df['lowerband'][i]
+        elif df['Close'][i] < df['lowerband'][i-1]:
+            df['supertrend'][i] = df['upperband'][i]
+        else:
+            df['supertrend'][i] = df['supertrend'][i-1]
+    return df
 
-print("🚀 Starting Forex + Crypto Strategy Scanner...")
+
+# ==========================
+# FETCH OHLC DATA
+# ==========================
+def get_data(tf="1h"):
+    return yf.download(PAIR, period="5d", interval=tf, progress=False)
+
+
+# ==========================
+# TRADING LOGIC
+# ==========================
+def check_signal():
+    now = datetime.now().strftime("%H:%M")
+
+    # Out-of-time skip
+    if not (START_TIME <= now <= END_TIME):
+        return "NO_TRADE"
+
+    # -------- 1H TREND --------
+    df_1h = get_data("1h")
+    df_1h["EMA50"] = df_1h["Close"].ewm(50).mean()
+
+    trend_up = df_1h["Close"].iloc[-1] > df_1h["EMA50"].iloc[-1]
+    trend_dn = df_1h["Close"].iloc[-1] < df_1h["EMA50"].iloc[-1]
+
+    # -------- 15M ENTRY --------
+    df_15 = get_data("15m")
+    df_15 = supertrend(df_15)
+
+    last_close = df_15["Close"].iloc[-1]
+    last_st = df_15["supertrend"].iloc[-1]
+
+    # BUY SIGNAL
+    if trend_up and last_close > last_st:
+        return f"BUY Signal 🔥\nPair: BTCUSD\nPrice: {last_close}"
+
+    # SELL SIGNAL
+    if trend_dn and last_close < last_st:
+        return f"SELL Signal ⚠️\nPair: BTCUSD\nPrice: {last_close}"
+
+    return "NO_TRADE"
+
+
+# ==========================
+# MAIN LOOP
+# ==========================
+send_telegram("🚀 BTC Intraday Bot Started (1H Trend + 15M Entry)")
 
 while True:
-    for ticker in CRYPTO_PAIRS + FOREX_PAIRS:
-        df_daily = get_data(ticker, period="200d", interval="1d")
-        df_hourly = get_data(ticker, period="90d", interval="1h")
+    signal = check_signal()
 
-        if df_daily is None or df_hourly is None:
-            continue
+    if signal != "NO_TRADE":
+        send_telegram(signal)
+        print("Alert Sent:", signal)
+    else:
+        print("No Trade | Waiting...")
 
-        # Flatten any 2D arrays
-        df_daily["Close"] = df_daily["Close"].squeeze()
-        df_hourly["Close"] = df_hourly["Close"].squeeze()
-
-        # --- Daily Trend ---
-        df_daily["EMA8"] = EMA(df_daily["Close"], 8)
-        df_daily["EMA16"] = EMA(df_daily["Close"], 16)
-        trend = "UP" if df_daily["EMA8"].iloc[-1] > df_daily["EMA16"].iloc[-1] else "DOWN"
-
-        # --- Hourly Indicators ---
-        df_hourly["RSI"] = RSI(df_hourly["Close"], 14)
-        df_hourly["ADX"] = ADX(df_hourly)
-
-        adx_latest = df_hourly["ADX"].iloc[-1]
-        rsi_latest = df_hourly["RSI"].iloc[-1]
-
-        # --- Avoid Sideways Market ---
-        if adx_latest < 20:
-            print(f"{ticker}: Sideways (ADX={adx_latest:.2f})")
-            continue
-
-        # --- Generate Signals ---
-        if trend == "UP" and rsi_latest <= 35:
-            msg = f"💹 BUY Signal ({ticker})\nTrend: {trend}\nRSI: {rsi_latest:.2f}\nADX: {adx_latest:.2f}"
-            print(msg)
-            send_telegram(msg)
-
-        elif trend == "DOWN" and rsi_latest >= 65:
-            msg = f"🔻 SELL Signal ({ticker})\nTrend: {trend}\nRSI: {rsi_latest:.2f}\nADX: {adx_latest:.2f}"
-            print(msg)
-            send_telegram(msg)
-
-        else:
-            print(f"{ticker}: No signal")
-
-    print("⏳ Waiting 30 minutes before next scan...")
-    time.sleep(1800)
-
-
+    time.sleep(60)   # every 1 minute check
