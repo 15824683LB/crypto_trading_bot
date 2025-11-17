@@ -6,18 +6,13 @@ from datetime import datetime
 from flask import Flask
 import threading
 
-app = Flask(__name__)
-
-
 # ==========================
 # USER SETTINGS
 # ==========================
-
 PAIR = "BTC-USD"
 TELEGRAM_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"
 CHAT_ID = "8191014589"
 
-# Intraday allowed trading time (24-hr)
 START_TIME = "18:00"
 END_TIME = "23:00"
 
@@ -55,7 +50,7 @@ def supertrend(df, period=10, multiplier=3):
 
 
 # ==========================
-# FETCH OHLC DATA
+# GET DATA
 # ==========================
 def get_data(tf="1h"):
     return yf.download(PAIR, period="5d", interval=tf, progress=False)
@@ -67,48 +62,64 @@ def get_data(tf="1h"):
 def check_signal():
     now = datetime.now().strftime("%H:%M")
 
-    # Out-of-time skip
     if not (START_TIME <= now <= END_TIME):
         return "NO_TRADE"
 
-    # -------- 1H TREND --------
     df_1h = get_data("1h")
     df_1h["EMA50"] = df_1h["Close"].ewm(50).mean()
 
     trend_up = df_1h["Close"].iloc[-1] > df_1h["EMA50"].iloc[-1]
     trend_dn = df_1h["Close"].iloc[-1] < df_1h["EMA50"].iloc[-1]
 
-    # -------- 15M ENTRY --------
     df_15 = get_data("15m")
     df_15 = supertrend(df_15)
 
     last_close = df_15["Close"].iloc[-1]
     last_st = df_15["supertrend"].iloc[-1]
 
-    # BUY SIGNAL
     if trend_up and last_close > last_st:
-        return f"BUY Signal 🔥\nPair: BTCUSD\nPrice: {last_close}"
+        return f"BUY Signal 🔥\nBTCUSD\nPrice: {last_close}"
 
-    # SELL SIGNAL
     if trend_dn and last_close < last_st:
-        return f"SELL Signal ⚠️\nPair: BTCUSD\nPrice: {last_close}"
+        return f"SELL Signal ⚠️\nBTCUSD\nPrice: {last_close}"
 
     return "NO_TRADE"
 
 
 # ==========================
-# MAIN LOOP
+# BOT MAIN LOOP
 # ==========================
-send_telegram("🚀 BTC Intraday Bot Started (1H Trend + 15M Entry)")
+def run_bot():
+    send_telegram("🚀 BTC Intraday Bot Started (1H Trend + 15M Entry)")
 
-while True:
-    signal = check_signal()
+    while True:
+        signal = check_signal()
 
-    if signal != "NO_TRADE":
-        send_telegram(signal)
-        print("Alert Sent:", signal)
-    else:
-        print("No Trade | Waiting...")
+        if signal != "NO_TRADE":
+            send_telegram(signal)
+            print("Alert Sent:", signal)
+        else:
+            print("No trade | Waiting...")
 
-    time.sleep(60)   # every 1 minute check
+        time.sleep(60)
 
+
+# ==========================
+# FLASK SERVER FOR RENDER
+# ==========================
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is running!"
+
+
+def run_flask():
+    app.run(host="0.0.0.0", port=10000)
+
+
+# ==========================
+# START BOTH FLASK + BOT
+# ==========================
+threading.Thread(target=run_flask).start()
+run_bot()
