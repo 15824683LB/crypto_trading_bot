@@ -16,11 +16,16 @@ TELEGRAM_CHAT_ID = "8191014589"
 SEND_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
 # Coins (yfinance supports these tickers safely)
+# কয়েন এবং সেটিংস
+# --- এখন মোট 20টি কয়েন চেক করা হবে ---
 COINS = [
-    "BTC-USD","ETH-USD","SOL-USD","BNB-USD",
-    "XRP-USD","DOGE-USD","AVAX-USD","LINK-USD"
+    "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD",
+    "XRP-USD", "DOGE-USD", "AVAX-USD", "LINK-USD",
+    # টপ 20 তালিকা থেকে নতুন কয়েন যোগ করা হলো (লিকুইডিটি অনুযায়ী)
+    "USDC-USD", "ADA-USD", "DOT-USD", "TRX-USD", 
+    "MATIC-USD", "SHIB-USD", "WLD-USD", "NEAR-USD", 
+    "ATOM-USD", "LTC-USD", "ETC-USD", "XLM-USD",
 ]
-
 TF_DIR = "4h"
 TF_ENTRY = "1h"
 
@@ -219,3 +224,4 @@ if __name__ == "__main__":
     # প্রধান ট্রেডিং লুপটি চালু করুন
     main()
         
+
