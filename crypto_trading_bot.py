@@ -19,9 +19,11 @@ SEND_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 # কয়েন এবং সেটিংস
 # কয়েন এবং সেটিংস
 COINS = [
-    "BTC-USD","ETH-USD","SOL-USD","BNB-USD",
-    "XRP-USD","DOGE-USD","AVAX-USD","LINK-USD"
+    "BTC-USD", "ETH-USD", "BNB-USD", "SOL-USD", 
+    "XRP-USD", "ADA-USD", "DOGE-USD", "AVAX-USD", 
+    "DOT-USD", "LINK-USD"
 ]
+
 TF_DIR = "4h"
 TF_ENTRY = "1h"
 
@@ -220,5 +222,6 @@ if __name__ == "__main__":
     # প্রধান ট্রেডিং লুপটি চালু করুন
     main()
         
+
 
 
