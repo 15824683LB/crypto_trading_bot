@@ -1,11 +1,11 @@
-from keep_alive import keep_alive
-keep_alive()
-
 import time
 from datetime import datetime, timezone
 import requests
 import pandas as pd
 import yfinance as yf
+# Flask ইমপোর্ট করুন
+from flask import Flask
+import threading
 
 # =========================
 # DIRECT TELEGRAM SETTINGS
@@ -155,9 +155,10 @@ TP3: {sig['tps'][2]}
 
 
 # ===============================
-# MAIN LOOP
+# TRADING MAIN LOOP
 # ===============================
 def main():
+    """আপনার প্রধান ট্রেডিং লজিক লুপ"""
     sent = {}
 
     send_telegram("🚀 Swing Crypto Bot Started.")
@@ -192,5 +193,29 @@ def main():
         time.sleep(sleep_time)
 
 
+# ===============================
+# KEEP-ALIVE WEB SERVER (Flask)
+# ===============================
+
+# Flask অ্যাপ তৈরি করুন
+app = Flask(__name__)
+
+# রুট (route) তৈরি করুন যা UptimeRobot বা হোস্টিং প্ল্যাটফর্ম চেক করবে
+@app.route('/')
+def home():
+    return "Bot is running!", 200
+
+# থ্রেড ব্যবহার করে Flask সার্ভারটি চালু করার ফাংশন
+def run_flask_server():
+    # Render বা Replit-এ চালানোর জন্য '0.0.0.0' ব্যবহার করা নিরাপদ
+    app.run(host='0.0.0.0', port=8080, debug=False)
+
+
 if __name__ == "__main__":
+    # Flask সার্ভারটি একটি নতুন থ্রেডে চালু করুন
+    flask_thread = threading.Thread(target=run_flask_server)
+    flask_thread.start()
+
+    # প্রধান ট্রেডিং লুপটি চালু করুন
     main()
+        
