@@ -1,125 +1,193 @@
-import yfinance as yf
-import pandas as pd
 import time
+from datetime import datetime, timezone
 import requests
-from datetime import datetime
-from flask import Flask
-import threading
+import pandas as pd
+import yfinance as yf
 
-# ==========================
-# USER SETTINGS
-# ==========================
-PAIR = "BTC-USD"
-TELEGRAM_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"
-CHAT_ID = "8191014589"
+# =========================
+# DIRECT TELEGRAM SETTINGS
+# =========================
+TELEGRAM_BOT_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"
+TELEGRAM_CHAT_ID = "8191014589"
 
-START_TIME = "18:00"
-END_TIME = "23:00"
+SEND_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
-# ==========================
-# TELEGRAM ALERT FUNCTION
-# ==========================
+# Coins (yfinance supports these tickers safely)
+COINS = [
+    "BTC-USD","ETH-USD","SOL-USD","BNB-USD",
+    "XRP-USD","DOGE-USD","AVAX-USD","LINK-USD"
+]
+
+TF_DIR = "4h"
+TF_ENTRY = "1h"
+
+EMA_PERIOD = 200
+TP_PERCENT = [2, 5, 10]      # TP1, TP2, TP3
+MAX_SL = 3.0                 # Max SL fallback
+CHECK_INTERVAL_MIN = 10      # cycle time
+
+
+# ===============================
+# Telegram Sender
+# ===============================
 def send_telegram(msg):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = {"chat_id": CHAT_ID, "text": msg}
     try:
-        requests.post(url, data=data)
-    except:
-        print("Telegram Error!")
+        r = requests.post(
+            SEND_URL,
+            data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}
+        )
+        if r.status_code != 200:
+            print("Telegram error:", r.text)
+    except Exception as e:
+        print("Telegram exception:", e)
 
 
-# ==========================
-# SUPER TREND INDICATOR
-# ==========================
-def supertrend(df, period=10, multiplier=3):
-    hl2 = (df['High'] + df['Low']) / 2
-    df['atr'] = df['Close'].rolling(period).std() * multiplier
+# ===============================
+# Fetch OHLCV (safe version)
+# ===============================
+def get_data(ticker, interval, period):
+    try:
+        df = yf.download(ticker, interval=interval, period=period, auto_adjust=False, progress=False)
+        if df is None or df.empty:
+            return None
+        df = df[['Open','High','Low','Close','Volume']]
+        df.columns = ['open','high','low','close','volume']
+        df = df.dropna()
+        df.index = pd.to_datetime(df.index, utc=True)
+        return df
+    except Exception as e:
+        print("Data fetch error:", ticker, e)
+        return None
 
-    df['upperband'] = hl2 + df['atr']
-    df['lowerband'] = hl2 - df['atr']
 
-    df['supertrend'] = 0
-    for i in range(1, len(df)):
-        if df['Close'][i] > df['upperband'][i-1]:
-            df['supertrend'][i] = df['lowerband'][i]
-        elif df['Close'][i] < df['lowerband'][i-1]:
-            df['supertrend'][i] = df['upperband'][i]
-        else:
-            df['supertrend'][i] = df['supertrend'][i-1]
+# ===============================
+# Indicators
+# ===============================
+def add_ema(df):
+    df["ema200"] = df["close"].ewm(span=EMA_PERIOD, adjust=False).mean()
     return df
 
 
-# ==========================
-# GET DATA
-# ==========================
-def get_data(tf="1h"):
-    return yf.download(PAIR, period="5d", interval=tf, progress=False)
+# ===============================
+# Strategy Logic (Simple but stable)
+# ===============================
+def detect_signal(df_dir, df_entry):
+
+    df_dir = add_ema(df_dir)
+    trend = "bull" if df_dir["close"].iloc[-1] > df_dir["ema200"].iloc[-1] else "bear"
+
+    # Order-block approximation
+    last_10 = df_dir.tail(20)
+    ob_candle = last_10.iloc[-4]
+    ob_high = max(ob_candle.open, ob_candle.high, ob_candle.close)
+    ob_low  = min(ob_candle.open, ob_candle.low, ob_candle.close)
+
+    cur = df_entry.iloc[-1]
+    price = cur.close
+
+    # Entry condition
+    entry = None
+    side = None
+    sl = None
+
+    if trend == "bull" and ob_low <= price <= ob_high:
+        entry = price
+        side = "long"
+        sl = ob_low * 0.995
+
+    if trend == "bear" and ob_low <= price <= ob_high:
+        entry = price
+        side = "short"
+        sl = ob_high * 1.005
+
+    if entry is None:
+        return None
+
+    # SL fallback
+    sl_pct = abs((entry - sl) / entry * 100)
+    if sl_pct > MAX_SL:
+        if side == "long":
+            sl = entry * (1 - MAX_SL/100)
+        else:
+            sl = entry * (1 + MAX_SL/100)
+
+    # TPs
+    tps = []
+    for p in TP_PERCENT:
+        if side == "long":
+            tps.append(round(entry * (1 + p/100), 6))
+        else:
+            tps.append(round(entry * (1 - p/100), 6))
+
+    return {
+        "side": side,
+        "entry": round(entry,6),
+        "sl": round(sl,6),
+        "tps": tps,
+        "trend": trend
+    }
 
 
-# ==========================
-# TRADING LOGIC
-# ==========================
-def check_signal():
-    now = datetime.now().strftime("%H:%M")
+# ===============================
+# Format Alert
+# ===============================
+def format_alert(ticker, sig):
+    emoji = "🔵 LONG" if sig["side"]=="long" else "🔴 SHORT"
+    msg = f"""
+<b>{ticker} — {emoji}</b>
 
-    if not (START_TIME <= now <= END_TIME):
-        return "NO_TRADE"
+Trend: {sig['trend']}
+Entry: <b>{sig['entry']}</b>
+SL: <b>{sig['sl']}</b>
 
-    df_1h = get_data("1h")
-    df_1h["EMA50"] = df_1h["Close"].ewm(50).mean()
+TP1: {sig['tps'][0]}
+TP2: {sig['tps'][1]}
+TP3: {sig['tps'][2]}
 
-    trend_up = df_1h["Close"].iloc[-1] > df_1h["EMA50"].iloc[-1]
-    trend_dn = df_1h["Close"].iloc[-1] < df_1h["EMA50"].iloc[-1]
+⏳ Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}
 
-    df_15 = get_data("15m")
-    df_15 = supertrend(df_15)
-
-    last_close = df_15["Close"].iloc[-1]
-    last_st = df_15["supertrend"].iloc[-1]
-
-    if trend_up and last_close > last_st:
-        return f"BUY Signal 🔥\nBTCUSD\nPrice: {last_close}"
-
-    if trend_dn and last_close < last_st:
-        return f"SELL Signal ⚠️\nBTCUSD\nPrice: {last_close}"
-
-    return "NO_TRADE"
+<i>Auto swing signal — backtest before use.</i>
+"""
+    return msg
 
 
-# ==========================
-# BOT MAIN LOOP
-# ==========================
-def run_bot():
-    send_telegram("🚀 BTC Intraday Bot Started (1H Trend + 15M Entry)")
+# ===============================
+# MAIN LOOP
+# ===============================
+def main():
+    sent = {}
+
+    send_telegram("🚀 Swing Crypto Bot Started.")
 
     while True:
-        signal = check_signal()
+        cycle_start = time.time()
 
-        if signal != "NO_TRADE":
-            send_telegram(signal)
-            print("Alert Sent:", signal)
-        else:
-            print("No trade | Waiting...")
+        for coin in COINS:
+            try:
+                df_dir = get_data(coin, TF_DIR, "90d")
+                df_entry = get_data(coin, TF_ENTRY, "30d")
 
-        time.sleep(60)
+                if df_dir is None or df_entry is None:
+                    print("No data:", coin)
+                    continue
+
+                sig = detect_signal(df_dir, df_entry)
+                if sig:
+                    key = f"{coin}_{sig['side']}_{sig['entry']}"
+
+                    if key not in sent:
+                        msg = format_alert(coin, sig)
+                        send_telegram(msg)
+                        sent[key] = time.time()
+                        print("Sent:", key)
+
+            except Exception as e:
+                print("Error processing", coin, e)
+
+        sleep_time = max(60, CHECK_INTERVAL_MIN*60 - (time.time() - cycle_start))
+        print("Sleeping", int(sleep_time), "sec")
+        time.sleep(sleep_time)
 
 
-# ==========================
-# FLASK SERVER FOR RENDER
-# ==========================
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Bot is running!"
-
-
-def run_flask():
-    app.run(host="0.0.0.0", port=10000)
-
-
-# ==========================
-# START BOTH FLASK + BOT
-# ==========================
-threading.Thread(target=run_flask).start()
-run_bot()
+if __name__ == "__main__":
+    main()
