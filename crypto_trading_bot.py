@@ -1,3 +1,6 @@
+from keep_alive import keep_alive
+keep_alive()
+
 import time
 from datetime import datetime, timezone
 import requests
