@@ -17,7 +17,7 @@ LAST_ALIVE_CHECK = None
 # =========================
 # আপনার নিজস্ব টেলিগ্রাম বট টোকেন এবং চ্যাট আইডি দিন
 TELEGRAM_BOT_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"  
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"     
+TELEGRAM_CHAT_ID = "8191014589"     
 
 # =========================
 # ⚙️ ট্রেডিং সেটিংস (TRADING SETTINGS)
@@ -319,3 +319,4 @@ if __name__ == "__main__":
         monitor_signals()
         print(f"Sleeping for {CHECK_INTERVAL_SECONDS / 60} minutes...")
         time.sleep(CHECK_INTERVAL_SECONDS)
+
