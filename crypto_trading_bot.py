@@ -6,7 +6,9 @@ import warnings
 import requests 
 import time
 import json 
-import os # Render Environment Variables access করার জন্য
+import os 
+from flask import Flask # নতুন যোগ করা হয়েছে
+from threading import Thread # নতুন যোগ করা হয়েছে
 
 warnings.filterwarnings("ignore") 
 
@@ -16,7 +18,6 @@ LAST_ALIVE_CHECK = None
 # =========================
 # ⚙️ টেলিগ্রাম সেটিংস (TELEGRAM SETTINGS)
 # =========================
-# আপনার টোকেন এবং আইডি কোড থেকে নেওয়া হয়েছে:
 TELEGRAM_BOT_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"  
 TELEGRAM_CHAT_ID = "8191014589"     
 
@@ -32,8 +33,8 @@ COINS = [
     "SOL-USD"
 ]
 
-TF_DIR = "4h"       # ট্রেন্ড নির্ধারণ
-TF_ENTRY = "1h"     # এন্ট্রি ম্যানেজমেন্ট
+TF_DIR = "4h"       
+TF_ENTRY = "1h"     
 
 EMA_PERIOD = 200    
 ATR_PERIOD = 14     
@@ -45,8 +46,7 @@ MAX_SL_PCT = 3.0
 # ===============================
 # 💾 ডেটা পারসিসটেন্স ফাংশন
 # ===============================
-# দ্রষ্টব্য: Render-এর ফ্রি টায়ারে ডেটা স্থায়ী হয় না। এটি দীর্ঘমেয়াদী সল্যুশন নয়।
-# আদর্শভাবে, এখানে একটি ডেটাবেস (যেমন PostgreSQL) ব্যবহার করা উচিত।
+# দ্রষ্টব্য: Render-এর ফ্রি টায়ারে ডেটা স্থায়ী হয় না। 
 def load_open_trades():
     """trades.json ফাইল থেকে ওপেন ট্রেড লোড করে"""
     try:
@@ -71,7 +71,6 @@ def save_open_trades(trades):
 # ===============================
 def send_telegram_message(message):
     """টেলিগ্রামের মাধ্যমে একটি মেসেজ পাঠায়"""
-    # আপনার কোড থেকে টোকেন সরাসরি ব্যবহার করা হচ্ছে।
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         'chat_id': TELEGRAM_CHAT_ID,
@@ -133,10 +132,7 @@ def detect_signal(df_dir_slice, df_entry_slice):
     if len(df_dir_slice) < EMA_PERIOD or len(df_entry_slice) < ATR_PERIOD:
          return None
 
-    # Trend Determination
     trend = "bull" if df_dir_slice["close"].iloc[-1] > df_dir_slice["ema200"].iloc[-1] else "bear"
-    
-    # OB/Zon (Pullback Zone)
     ob_candles = df_dir_slice.iloc[-5:-1] 
     ob_high = ob_candles["high"].max()
     ob_low  = ob_candles["low"].min()
@@ -146,13 +142,11 @@ def detect_signal(df_dir_slice, df_entry_slice):
     atr_val = cur.atr
     rsi_val = cur.rsi
     
-    # MACD Confirmation
     macd_line = df_dir_slice["macd_line"].iloc[-1]
     macd_signal = df_dir_slice["macd_signal"].iloc[-1]
     macd_bullish = macd_line > macd_signal
     macd_bearish = macd_line < macd_signal
 
-    # Risk/Reward Levels
     sl_distance = atr_val * ATR_MULTIPLIER
     tp_distance = atr_val * TP_MULTIPLIER
 
@@ -294,20 +288,45 @@ def monitor_signals():
             print(f"Tracking {ticker} | Side: {open_trades[ticker]['side'].upper()} | Entry: {open_trades[ticker]['entry']:.4f}")
 
 # ===============================
-# 🚀 মূল এক্সিকিউশন (MAIN EXECUTION)
+# 🚀 মূল এক্সিকিউশন (MAIN EXECUTION) - Flask সহ Free Web Service এর জন্য
 # ===============================
-if __name__ == "__main__":
+
+# Flask অ্যাপ তৈরি করা হলো
+app = Flask(__name__)
+
+# এই রুটটি Render এবং Uptime Robot ব্যবহার করবে যে সার্ভিসটি চালু আছে
+@app.route("/")
+def alive_check_route():
+    # এটি Render-কে নিশ্চিত করে যে সার্ভিসটি চলছে
+    return "Trading Monitor is Alive!", 200
+
+# monitor_signals ফাংশনটিকে একটি পৃথক থ্রেডে চালানোর জন্য ফাংশন
+def run_monitor():
+    global open_trades
     
     # স্ক্রিপ্ট শুরু হওয়ার সময় পূর্ববর্তী ট্রেডগুলি লোড করা হলো
     open_trades = load_open_trades()
     
-    # 1h টাইমফ্রেম অনুযায়ী প্রতি 60 মিনিট অপেক্ষা
-    CHECK_INTERVAL_SECONDS = 3600 
+    CHECK_INTERVAL_SECONDS = 3600 # 60 মিনিট
 
-    print("--- Starting Trading Monitor Loop ---")
+    print("--- Starting Trading Monitor Loop in Background Thread ---")
     
     while True:
         monitor_signals()
         print(f"Sleeping for {CHECK_INTERVAL_SECONDS / 60} minutes...")
         time.sleep(CHECK_INTERVAL_SECONDS)
-        
+
+if __name__ == "__main__":
+    
+    # ব্যাকগ্রাউন্ড থ্রেড শুরু করা হলো
+    monitor_thread = Thread(target=run_monitor)
+    monitor_thread.daemon = True # মেইন থ্রেড বন্ধ হলে এই থ্রেডও বন্ধ হবে
+    monitor_thread.start()
+    
+    # Flask অ্যাপ শুরু করা হলো
+    # Render $PORT এনভায়রনমেন্ট ভেরিয়েবল ব্যবহার করে (সাধারণত 10000)
+    port = int(os.environ.get("PORT", 10000))
+    print(f"Flask app starting on port {port}")
+    # Flask অ্যাপটি পোর্ট বাইন্ড করবে এবং HTTP ট্র্যাফিকের উত্তর দেবে, যা Render প্রত্যাশা করে
+    app.run(host="0.0.0.0", port=port)
+    
