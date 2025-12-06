@@ -1,5 +1,7 @@
-pandas
-yfinance
-numpy
-requests
-flask
+# Data Handling & Analysis
+pandas>=2.0.0      # ডেটা ফ্রেম তৈরি এবং ম্যানিপুলেশনের জন্য
+numpy>=1.24.0      # গাণিতিক এবং সংখ্যাসূচক অপারেশন (ইন্ডিকেটর) এর জন্য
+yfinance>=0.2.28   # Yahoo Finance থেকে ঐতিহাসিক ডেটা সংগ্রহের জন্য
+
+# Network & API Communication
+requests>=2.28.0   # CoinDCX REST API এবং Telegram API-এর সাথে যোগাযোগ করার জন্য
