@@ -1,76 +1,157 @@
 import pandas as pd
 import yfinance as yf
 import numpy as np
-from datetime import datetime
 import warnings
+import math 
+import time  
 import requests 
-import time
-import json 
-import os 
-from flask import Flask # নতুন যোগ করা হয়েছে
-from threading import Thread # নতুন যোগ করা হয়েছে
+import hmac
+import hashlib
+from datetime import datetime, timedelta
 
 warnings.filterwarnings("ignore") 
 
-# শেষ কবে Alive চেক মেসেজ পাঠানো হয়েছে, তা ট্র্যাক করার জন্য
-LAST_ALIVE_CHECK = None 
+# ====================================================================
+# 🔑 API KEY & SECRET KEY (আপনার আসল কী বসান!)
+# ====================================================================
 
-# =========================
-# ⚙️ টেলিগ্রাম সেটিংস (TELEGRAM SETTINGS)
-# =========================
-TELEGRAM_BOT_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"  
-TELEGRAM_CHAT_ID = "8191014589"     
+# ⚠️ নিশ্চিত করুন, এখানে আপনার আসল Key গুলোই আছে!
+API_KEY = "7483bb977c62d522309a78787db49f69a2db134edc95efb5"
+SECRET_KEY = "ef01906f8368cbcc3027e98f1d5fc1cede7e909e9890732502af20d674580e6d" 
 
-# =========================
-# ⚙️ ট্রেডিং সেটিংস (TRADING SETTINGS)
-# =========================
+# টেলিগ্রাম সেটিংস
+TELEGRAM_BOT_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"
+TELEGRAM_CHAT_ID = "8191014589"
 
-COINS = [
-    "ADA-USD",
-    "BNB-USD", 
-    "BTC-USD", 
-    "DOGE-USD",
-    "SOL-USD"
-]
+# এই প্লেসহোল্ডারটি শুধুমাত্র চেক করার জন্য
+GENERIC_PLACEHOLDER = "PLACEHOLDER_FOR_MOCK_CHECK"
+MOCK_MODE = False
 
-TF_DIR = "4h"       
-TF_ENTRY = "1h"     
 
-EMA_PERIOD = 200    
-ATR_PERIOD = 14     
-ATR_MULTIPLIER = 2.0 
-TP_MULTIPLIER = 4.0  
+# ====================================================================
+# 🔒 CoinDCX API ফাংশন ও নিরাপত্তা (REST API)
+# ====================================================================
 
-MAX_SL_PCT = 3.0    
+BASE_URL = "https://api.coindcx.com" 
 
-# ===============================
-# 💾 ডেটা পারসিসটেন্স ফাংশন
-# ===============================
-# দ্রষ্টব্য: Render-এর ফ্রি টায়ারে ডেটা স্থায়ী হয় না। 
-def load_open_trades():
-    """trades.json ফাইল থেকে ওপেন ট্রেড লোড করে"""
+def create_signature(payload, secret_key):
+    """Payload এর উপর ভিত্তি করে HMAC SHA256 Signature তৈরি করে।"""
+    # Payload কে JSON string এ রূপান্তর করে (no space)
+    payload_str = requests.json.dumps(payload, separators=(',', ':'))
+
+    # Secret Key বাইটে এনকোড করা
+    secret_bytes = bytes(secret_key, 'utf-8')
+
+    # HMAC-SHA256 হ্যাশ তৈরি করা
+    signature = hmac.new(secret_bytes, payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+    return signature
+
+def make_coindcx_request(endpoint, payload):
+    """CoinDCX API এ Signed Request পাঠায়।"""
+    global MOCK_MODE
+
+    # 1. Signature তৈরি
+    payload['timestamp'] = int(time.time() * 1000)
+    signature = create_signature(payload, SECRET_KEY)
+
+    headers = {
+        'X-AUTH-APIKEY': API_KEY,
+        'X-AUTH-SIGNATURE': signature,
+        'Content-Type': 'application/json'
+    }
+
     try:
-        with open('trades.json', 'r') as f:
-            print("Trades loaded successfully from trades.json.")
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        print("No trades file found or file corrupted. Starting fresh.")
-        return {}
-
-def save_open_trades(trades):
-    """trades.json ফাইলে ওপেন ট্রেড সেভ করে"""
-    try:
-        with open('trades.json', 'w') as f:
-            json.dump(trades, f, indent=4)
-            print("Trades saved to trades.json.")
+        response = requests.post(BASE_URL + endpoint, headers=headers, json=payload)
+        response.raise_for_status() # HTTP ত্রুটি হলে Exception তৈরি করে
+        return response.json()
+    except requests.exceptions.HTTPError as err:
+        error_msg = f"API HTTP Error: {err.response.status_code} - {err.response.text}"
+        print(f"❌ ERROR: {error_msg}")
+        if 'Invalid credentials' in err.response.text or 'invalid signature' in err.response.text:
+             # যদি API কী এর কারণে বারবার ভুল আসে, তবে মক মোডে চলে যাওয়া উচিত।
+             MOCK_MODE = True
+             return {"error": error_msg}
+        return {"error": error_msg}
     except Exception as e:
-        print(f"Error saving trades to file: {e}")
+        print(f"❌ ERROR: General Request Error: {e}")
+        return {"error": str(e)}
+
+def get_coindcx_balance():
+    """একাউন্ট ব্যালেন্স (Future Wallet) ফ্রেচ করে।"""
+    payload = {}
+    return make_coindcx_request("/exchange/v1/users/balances", payload)
+
+def get_coindcx_future_market_id(pair):
+    """'SOL/INR' থেকে 'SOLUSDT' বা মার্কেটের ID বের করে (সাধারণত CoinDCX সরাসরি মার্কেট আইডি চায়)"""
+    # যেহেতু CoinDCX Future API-এর পেয়ারের নাম আলাদা (যেমন BTCUSDTF), 
+    # আমরা ধরে নিচ্ছি যে pair (যেমন SOL/INR) এর অংশগুলিকে কনভার্ট করতে হবে।
+    # এটি লাইভ করার জন্য আপনাকে CoinDCX API ডকুমেন্টেশন অনুযায়ী ফিউচার পেয়ারের নাম নিশ্চিত করতে হবে।
+
+    # আপাতত আমরা USD/INR পেয়ারকে (যেমন SOL/INR) ফিউচার পেয়ারের সাথে ম্যাপ করার জন্য একটি ডিকশনারি ব্যবহার করব।
+    # CoinDCX এ ফিউচার পেয়ার সাধারণত USDT ফিউচার হয়। 
+
+    # এই অংশে আপনার আসল ফিউচার পেয়ারের ID বসান (যেমন SOLUSDTF বা XRPUSDTF)
+    FUTURE_MAP = {
+        "SOL/INR": "SOLUSDTF",
+        "XRP/INR": "XRPUSDTF",
+        "ADA/INR": "ADAUSDTF"
+    }
+    return FUTURE_MAP.get(pair, None)
+
+
+# ====================================================================
+# 🛠️ API কী লোডিং এবং ক্লায়েন্ট ইনিশিয়ালাইজেশন (সংশোধিত)
+# ====================================================================
+try:
+    if API_KEY == GENERIC_PLACEHOLDER or SECRET_KEY == GENERIC_PLACEHOLDER:
+        raise ValueError("API Keys are still placeholders.")
+
+    # API কানেকশন চেক করার জন্য ব্যালেন্স ফ্রেচ করা
+    balance_response = get_coindcx_balance()
+
+    if 'error' in balance_response:
+        raise Exception(f"API connection failed: {balance_response['error']}")
+
+    # এখানে CoinDCX এর Balance Response কে format করে দেখানো হলো
+    total_balance = "N/A"
+    print(f"✅ API Keys configured and CoinDCX client initialized. Balance check successful.")
+
+except ValueError as e:
+    print(f"❌ WARNING: API Initialization failed ({e}). Running in MOCK mode.")
+    MOCK_MODE = True
+
+except Exception as e:
+    print(f"❌ WARNING: API Initialization failed ({e}). Running in MOCK mode.")
+    MOCK_MODE = True
+
+# =========================
+# ⚙️ CoinDCX অ্যালগো সেটিংস 
+# =========================
+CAPITAL_INR = 10000.0   
+RISK_PER_TRADE_PCT = 0.5 
+MAX_SL_PCT = 3.0         
+LEVERAGE = 5             
+TF_DIR = "1h"       
+TF_ENTRY = "15m"    
+EMA_PERIOD = 200    
+ATR_MULTIPLIER = 2.0 
+RR_TARGETS = [2.0]  
+COINDCX_PAIRS = ["SOL/INR", "XRP/INR", "ADA/INR"] 
+YF_TICKERS = {
+    "SOL/INR": "SOL-USD",
+    "XRP/INR": "XRP-USD",
+    "ADA/INR": "ADA-USD"
+}
+ACTIVE_ORDERS = {} 
 
 # ===============================
-# 📣 টেলিগ্রাম ফাংশন
+# 📬 টেলিগ্রাম ফাংশন
 # ===============================
 def send_telegram_message(message):
-    """টেলিগ্রামের মাধ্যমে একটি মেসেজ পাঠায়"""
+    """টেলিগ্রামের মাধ্যমে একটি মেসেজ পাঠায়।"""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         'chat_id': TELEGRAM_CHAT_ID,
@@ -78,87 +159,98 @@ def send_telegram_message(message):
         'parse_mode': 'Markdown'
     }
     try:
-        requests.post(url, data=payload)
-    except requests.exceptions.RequestException as e:
+        requests.post(url, json=payload).raise_for_status() 
+    except Exception as e:
         print(f"Error sending Telegram message: {e}")
 
 # ===============================
-# 📊 ডেটা সংগ্রহ (Data Fetch)
+# 💰 পজিশন সাইজিং লজিক
 # ===============================
-def get_data(ticker, interval, start_date=None, end_date=None):
-    try:
-        df = yf.download(ticker, interval=interval, period='5d', auto_adjust=False, progress=False) 
-        if df is None or df.empty:
-            return None
-            
-        df = df[['Open','High','Low','Close','Volume']]
-        df.columns = ['open','high','low','close','volume']
-        df = df.dropna()
-        df.index = pd.to_datetime(df.index, utc=True)
-        return df
-    except Exception as e:
-        return None
+def calculate_position_size(entry_price, sl_price, ticker_price):
+    """
+    Max Risk per Trade এবং SL দূরত্বের উপর ভিত্তি করে পজিশন সাইজ (Volume) গণনা করে।
+    """
+    risk_pct_on_trade = abs(entry_price - sl_price) / entry_price
+    max_risk_inr = CAPITAL_INR * (RISK_PER_TRADE_PCT / 100)
+
+    if risk_pct_on_trade == 0:
+        return 0.0, 0.0 
+
+    position_value_inr = max_risk_inr / risk_pct_on_trade
+    volume_to_trade = position_value_inr / ticker_price
+
+    if position_value_inr < 500: 
+        position_value_inr = 500
+        volume_to_trade = position_value_inr / ticker_price
+
+
+    return round(position_value_inr, 2), round(volume_to_trade, 4)
 
 # ===============================
-# 🧪 ইন্ডিকেটর ক্যালকুলেশন (Indicators)
+# 🧪 ইন্ডিকেটর এবং সিগন্যাল লজিক (পূর্বের মতোই)
 # ===============================
+
 def add_indicators(df):
+    """ডেটাফ্রেমে EMA(200), EMA(21), ATR, MACD এবং RSI যোগ করে"""
     df_copy = df.copy() 
-    
-    df_copy["ema200"] = df_copy["close"].ewm(span=EMA_PERIOD, adjust=False).mean()
-    df_copy["ema12"] = df_copy["close"].ewm(span=12, adjust=False).mean()
-    df_copy["ema26"] = df_copy["close"].ewm(span=26, adjust=False).mean()
+
+    df_copy["ema200"] = df_copy["Close"].ewm(span=EMA_PERIOD, adjust=False).mean() 
+    df_copy["ema21"] = df_copy["Close"].ewm(span=21, adjust=False).mean() 
+    df_copy["ema12"] = df_copy["Close"].ewm(span=12, adjust=False).mean()
+    df_copy["ema26"] = df_copy["Close"].ewm(span=26, adjust=False).mean()
     df_copy["macd_line"] = df_copy["ema12"] - df_copy["ema26"]
     df_copy["macd_signal"] = df_copy["macd_line"].ewm(span=9, adjust=False).mean()
 
-    high_low = df_copy["high"] - df_copy["low"]
-    high_close = np.abs(df_copy["high"] - df_copy["close"].shift())
-    low_close = np.abs(df_copy["low"] - df_copy["close"].shift())
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    df_copy["atr"] = tr.ewm(span=ATR_PERIOD, adjust=False).mean()
+    # ATR গণনা
+    high_low = df_copy["High"] - df_copy["Low"] 
+    high_close = np.abs(df_copy["High"] - df_copy["Close"].shift())
+    low_close = np.abs(df_copy["Low"] - df_copy["Close"].shift())
 
-    delta = df_copy['close'].diff()
-    gain = (delta.where(delta > 0, 0)).ewm(com=ATR_PERIOD-1, adjust=False).mean()
-    loss = (-delta.where(delta < 0, 0)).ewm(com=ATR_PERIOD-1, adjust=False).mean()
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    df_copy["atr"] = tr.ewm(span=14, adjust=False).mean()
+
+    # RSI গণনা
+    delta = df_copy['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).ewm(com=13, adjust=False).mean()
+    loss = (-delta.where(delta < 0, 0)).ewm(com=13, adjust=False).mean()
     rs = gain / loss
     df_copy['rsi'] = 100 - (100 / (1 + rs))
 
-    return df_copy
+    df_copy['close'] = df_copy['Close'] 
 
-# ===============================
-# 🎯 সিগন্যাল লজিক (Signal Logic)
-# ===============================
+    return df_copy.dropna()
+
 def detect_signal(df_dir_slice, df_entry_slice):
-    if len(df_dir_slice) < EMA_PERIOD or len(df_entry_slice) < ATR_PERIOD:
+    """সিগন্যাল সনাক্ত করে"""
+
+    if len(df_dir_slice) < EMA_PERIOD or len(df_entry_slice) < 14:
          return None
 
+    # 1. ট্রেন্ড, OB Zone, এবং Indicators
     trend = "bull" if df_dir_slice["close"].iloc[-1] > df_dir_slice["ema200"].iloc[-1] else "bear"
     ob_candles = df_dir_slice.iloc[-5:-1] 
-    ob_high = ob_candles["high"].max()
-    ob_low  = ob_candles["low"].min()
-
+    ob_high = ob_candles["High"].max()
+    ob_low  = ob_candles["Low"].min()
     cur = df_entry_slice.iloc[-1]
     price = cur.close
     atr_val = cur.atr
     rsi_val = cur.rsi
-    
     macd_line = df_dir_slice["macd_line"].iloc[-1]
     macd_signal = df_dir_slice["macd_signal"].iloc[-1]
     macd_bullish = macd_line > macd_signal
     macd_bearish = macd_line < macd_signal
 
     sl_distance = atr_val * ATR_MULTIPLIER
-    tp_distance = atr_val * TP_MULTIPLIER
 
     entry, side, sl = None, None, None
 
-    # Long Entry Condition
+    # Long Entry 
     if trend == "bull" and macd_bullish and ob_low <= price <= ob_high and rsi_val > 55:
         entry = price
         side = "long"
-        sl = entry - sl_distance
+        sl = entry - sl_distance 
 
-    # Short Entry Condition
+    # Short Entry
     if trend == "bear" and macd_bearish and ob_low <= price <= ob_high and rsi_val < 45:
         entry = price
         side = "short"
@@ -174,159 +266,189 @@ def detect_signal(df_dir_slice, df_entry_slice):
             sl = entry * (1 - MAX_SL_PCT/100)
         else:
             sl = entry * (1 + MAX_SL_PCT/100)
-            
+
     risk_distance = abs(entry - sl)
-    tp1 = entry + tp_distance if side == "long" else entry - tp_distance
-    be_level = entry + risk_distance if side == "long" else entry - risk_distance 
+
+    # TP/BE Level
+    rr = RR_TARGETS[0]
+    tp1 = entry + (risk_distance * rr) if side == "long" else entry - (risk_distance * rr)
+    be_level = entry + risk_distance if side == "long" else entry - risk_distance
 
     return {
         "side": side,
-        "entry": round(entry,6),
-        "sl": round(sl,6),
-        "tp1": round(tp1, 6),
-        "be_level": round(be_level, 6),
+        "entry": entry,
+        "sl": sl,
+        "tp1": tp1,
+        "be_level": be_level,
         "risk_distance": risk_distance
     }
 
-# ----------------------------------------------------
-# 💖 Alive Checker Function
-# ----------------------------------------------------
-def check_and_send_alive_status():
-    """চেক করে যে মনিটর চালু আছে কিনা, এবং প্রতি 24 ঘন্টায় একবার টেলিগ্রামে মেসেজ পাঠায়।"""
-    global LAST_ALIVE_CHECK
-    
-    ALIVE_INTERVAL = 86400 # 24 ঘন্টা = 86400 সেকেন্ড
-    
-    current_time = time.time()
-    
-    if LAST_ALIVE_CHECK is None or (current_time - LAST_ALIVE_CHECK) > ALIVE_INTERVAL:
-        
-        msg = (
-            f"💖 *MONITOR ALIVE CHECK - HEARTBEAT*\n"
-            f"Status: Trading Monitor is running successfully on Render.\n"
-            f"Active Coins: {', '.join(COINS)}\n"
-            f"Last Check Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}"
-        )
-        send_telegram_message(msg)
-        
-        LAST_ALIVE_CHECK = current_time
-        print("\n[HEARTBEAT] Alive status sent to Telegram.")
-    else:
-        time_to_next_check = int((ALIVE_INTERVAL - (current_time - LAST_ALIVE_CHECK)) / 3600)
-        print(f"\n[ALIVE] Monitor is running. Next Telegram check in: {time_to_next_check} hours.")
 
 # ===============================
-# 📣 লাইভ সিগন্যাল মনিটর (LIVE SIGNAL MONITOR)
-# ===============================
-def monitor_signals():
-    """নির্দিষ্ট কয়েনগুলির জন্য লাইভ সিগন্যাল চেক করে এবং টেলিগ্রাম অ্যালার্ট পাঠায়"""
-    
-    global open_trades
-    
-    check_and_send_alive_status() 
-    
-    print(f"\n--- Checking Signals at {datetime.now().strftime('%H:%M:%S')} IST ---")
-    
-    for ticker in COINS:
-        
-        df_dir = get_data(ticker, TF_DIR)
-        df_entry = get_data(ticker, TF_ENTRY)
-
-        if df_dir is None or df_entry is None:
-            continue
-
-        df_dir = add_indicators(df_dir)
-        df_entry = add_indicators(df_entry)
-        
-        df_dir_slice = df_dir.dropna()
-        df_entry_slice = df_entry.dropna()
-        
-        sig = detect_signal(df_dir_slice, df_entry_slice)
-        
-        # --- (A) নতুন এন্ট্রি সিগন্যাল ---
-        if sig and ticker not in open_trades:
-            
-            msg = (
-                f"🚀 *New ATR Breakout Signal - {ticker}*\n"
-                f"Direction: {sig['side'].upper()}\n"
-                f"Entry Price: ${sig['entry']:.6f}\n"
-                f"Stop Loss: ${sig['sl']:.6f}\n"
-                f"Target (1:2 R:R): ${sig['tp1']:.6f}\n"
-                f"1:1 R:R Level (BE Trigger): ${sig['be_level']:.6f}"
-            )
-            send_telegram_message(msg)
-            
-            open_trades[ticker] = sig
-            save_open_trades(open_trades) 
-            
-        # --- (B) ট্রেইলিং SL অ্যালার্ট (Break-Even Simulation) ---
-        elif ticker in open_trades:
-            
-            current_price = df_entry.iloc[-1]['close']
-            trade = open_trades[ticker]
-            
-            be_hit = False
-            if trade['side'] == 'long' and current_price >= trade['be_level']:
-                be_hit = True
-            elif trade['side'] == 'short' and current_price <= trade['be_level']:
-                be_hit = True
-
-            if be_hit and trade.get('sl_shift_alert') != True:
-                
-                msg = (
-                    f"⚠️ *SL SHIFT ALERT - {ticker} ({trade['side'].upper()})*\n"
-                    f"Price hit 1:1 R:R level (${trade['be_level']:.6f}).\n"
-                    f"Please **MOVE STOP LOSS to ENTRY PRICE** (${trade['entry']:.6f}) on your exchange."
-                )
-                send_telegram_message(msg)
-                
-                open_trades[ticker]['sl_shift_alert'] = True
-                save_open_trades(open_trades) 
-                
-        # --- (C) ওপেন ট্রেড চেক (শুধুমাত্র কনসোলে) ---
-        if ticker in open_trades:
-            print(f"Tracking {ticker} | Side: {open_trades[ticker]['side'].upper()} | Entry: {open_trades[ticker]['entry']:.4f}")
-
-# ===============================
-# 🚀 মূল এক্সিকিউশন (MAIN EXECUTION) - Flask সহ Free Web Service এর জন্য
+# 🤖 লাইভ অর্ডার প্লেসমেন্ট (CoinDCX REST API)
 # ===============================
 
-# Flask অ্যাপ তৈরি করা হলো
-app = Flask(__name__)
+def live_place_order(pair, side, volume, sl_price, tp_price):
+    """
+    CoinDCX Future API এ মার্কেট অর্ডার, SL এবং TP অর্ডার প্লেস করে।
+    """
+    if MOCK_MODE:
+        # মক মোডে শুধু প্রিন্ট করা হবে
+        print(f"\n--- 🤖 MOCK ORDER PLACED (CoinDCX) ---")
+        print(f"  Symbol: {pair}, Side: {side}, Volume: {volume}, SL: {sl_price:.4f}, TP: {tp_price:.4f}")
+        print("---------------------------------------")
+        return {"orderId": "MOCK_ORDER_12345", "status": "new"} 
 
-# এই রুটটি Render এবং Uptime Robot ব্যবহার করবে যে সার্ভিসটি চালু আছে
-@app.route("/")
-def alive_check_route():
-    # এটি Render-কে নিশ্চিত করে যে সার্ভিসটি চলছে
-    return "Trading Monitor is Alive!", 200
+    # CoinDCX Future এর জন্য মার্কেট আইডি (যেমন SOLUSDTF)
+    market_id = get_coindcx_future_market_id(pair)
+    if not market_id:
+        print(f"❌ ERROR: Future Market ID not found for {pair}")
+        return None
 
-# monitor_signals ফাংশনটিকে একটি পৃথক থ্রেডে চালানোর জন্য ফাংশন
-def run_monitor():
-    global open_trades
-    
-    # স্ক্রিপ্ট শুরু হওয়ার সময় পূর্ববর্তী ট্রেডগুলি লোড করা হলো
-    open_trades = load_open_trades()
-    
-    CHECK_INTERVAL_SECONDS = 3600 # 60 মিনিট
+    try:
+        # 1. সেট লেভারেজ (CoinDCX এ ফিউচার অর্ডারের জন্য লেভারেজ Payload এর অংশ হতে পারে)
+        # এখানে লেভারেজ সেট করার জন্য আলাদা একটি API কল করা যেতে পারে।
 
-    print("--- Starting Trading Monitor Loop in Background Thread ---")
-    
+        # 2. মার্কেট অর্ডার প্লেস করা (Main Entry)
+        main_order_payload = {
+            "symbol": market_id,
+            "side": side.lower(), # 'buy' বা 'sell'
+            "order_type": "market",
+            "quantity": round(volume, 4), 
+            "leverage": LEVERAGE
+        }
+        order_response = make_coindcx_request("/exchange/v1/futures/order/create", main_order_payload)
+
+        if 'error' in order_response or order_response.get('status') == 'rejected':
+            raise Exception(f"Main Order failed: {order_response}")
+
+        order_id = order_response.get('orderId', 'N/A')
+
+        # 3. SL এবং TP অর্ডার প্লেস করা (OCO বা আলাদা Stop/Limit)
+        # CoinDCX Future API-এ SL/TP সাধারণত পজিশন খোলার পর আলাদাভাবে প্লেস করতে হয়।
+
+        # SL অর্ডার (Stop Limit/Stop Market)
+        sl_side = 'sell' if side.upper() == 'LONG' else 'buy'
+        sl_payload = {
+            "symbol": market_id,
+            "side": sl_side,
+            "order_type": "stop_limit", # Stop Limit ব্যবহার করা হলো
+            "quantity": round(volume, 4),
+            "stop_price": round(sl_price, 4),
+            "price": round(sl_price * 0.99, 4) if sl_side == 'buy' else round(sl_price * 1.01, 4), # Trigger price থেকে সামান্য দূরত্ব
+            "leverage": LEVERAGE
+        }
+        sl_response = make_coindcx_request("/exchange/v1/futures/order/create", sl_payload)
+
+        # TP অর্ডার (Limit)
+        tp_side = 'sell' if side.upper() == 'LONG' else 'buy'
+        tp_payload = {
+            "symbol": market_id,
+            "side": tp_side,
+            "order_type": "limit",
+            "quantity": round(volume, 4),
+            "price": round(tp_price, 4),
+            "leverage": LEVERAGE
+        }
+        tp_response = make_coindcx_request("/exchange/v1/futures/order/create", tp_payload)
+
+
+        message = f"✅ LIVE ORDER SUCCESS | {pair} {side.upper()}\nEntry ID: {order_id}\nSL ID: {sl_response.get('orderId', 'N/A')} | TP ID: {tp_response.get('orderId', 'N/A')}"
+        send_telegram_message(message)
+        print(message)
+
+        return order_response
+
+    except Exception as e:
+        error_message = f"❌ LIVE ORDER FAILED on {pair}: {e}"
+        send_telegram_message(error_message)
+        print(error_message)
+        return None
+
+# ===============================
+# 🚀 অ্যালগো মেইন লুপ 
+# ===============================
+
+def run_algo_monitor_loop():
+    global ACTIVE_ORDERS
+    last_heartbeat_time = datetime.now() - timedelta(hours=2) 
+
+    print(f"\n--- 🤖 CoinDCX 24/7 Algo Monitor Started ---")
+
     while True:
-        monitor_signals()
-        print(f"Sleeping for {CHECK_INTERVAL_SECONDS / 60} minutes...")
-        time.sleep(CHECK_INTERVAL_SECONDS)
+        current_time = datetime.now()
 
+        if current_time - last_heartbeat_time >= timedelta(hours=1):
+            status_msg = f"❤️ Algo Heartbeat - {current_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            status_msg += f"Monitor is running smoothly. Active Orders: {len(ACTIVE_ORDERS)}"
+            send_telegram_message(status_msg)
+            last_heartbeat_time = current_time
+
+        start_date = (current_time - pd.Timedelta(days=7)).strftime('%Y-%m-%d')
+        end_date = current_time.strftime('%Y-%m-%d')
+
+        for cdcx_pair in COINDCX_PAIRS:
+            if cdcx_pair in ACTIVE_ORDERS and ACTIVE_ORDERS[cdcx_pair]['status'] == 'open':
+                print(f"[{cdcx_pair}] Skipping check: Order already active.")
+                continue
+
+            yf_ticker = YF_TICKERS[cdcx_pair]
+
+            # 1. ডেটা ফ্রেচ ও ইন্ডিকেটর গণনা
+            try:
+                df_dir = yf.download(yf_ticker, interval=TF_DIR, start=start_date, end=end_date, progress=False, auto_adjust=False).dropna()
+                df_entry = yf.download(yf_ticker, interval=TF_ENTRY, start=start_date, end=end_date, progress=False, auto_adjust=False).dropna()
+            except Exception as e:
+                print(f"Error fetching data for {cdcx_pair}: {e}")
+                continue
+
+            if df_dir.empty or df_entry.empty:
+                continue
+
+            df_dir = add_indicators(df_dir)
+            df_entry = add_indicators(df_entry)
+
+            # 2. সিগন্যাল সনাক্তকরণ
+            sig = detect_signal(df_dir, df_entry)
+
+            if sig:
+                print(f"  ✅ Signal Found: {sig['side'].upper()} @ {sig['entry']:.4f}")
+
+                # 3. পজিশন সাইজিং
+                position_value_inr, volume_to_trade = calculate_position_size(sig['entry'], sig['sl'], sig['entry'])
+
+                # 4. লাইভ অর্ডার প্লেসমেন্ট (TP/SL সহ)
+                order_response = live_place_order(
+                    cdcx_pair, 
+                    sig['side'].upper(), 
+                    volume_to_trade, 
+                    sig['sl'], 
+                    sig['tp1']
+                )
+
+                if order_response and order_response.get('status') != 'rejected':
+                    ACTIVE_ORDERS[cdcx_pair] = {
+                        "id": order_response.get('orderId', 'N/A'),
+                        "status": "open",
+                        "entry": sig['entry'],
+                        "sl": sig['sl'],
+                        "tp1": sig['tp1']
+                    }
+            else:
+                pass 
+
+        time.sleep(15 * 60) 
+
+# ===============================
+# 🚀 মূল এক্সিকিউশন
+# ===============================
 if __name__ == "__main__":
-    
-    # ব্যাকগ্রাউন্ড থ্রেড শুরু করা হলো
-    monitor_thread = Thread(target=run_monitor)
-    monitor_thread.daemon = True # মেইন থ্রেড বন্ধ হলে এই থ্রেডও বন্ধ হবে
-    monitor_thread.start()
-    
-    # Flask অ্যাপ শুরু করা হলো
-    # Render $PORT এনভায়রনমেন্ট ভেরিয়েবল ব্যবহার করে (সাধারণত 10000)
-    port = int(os.environ.get("PORT", 10000))
-    print(f"Flask app starting on port {port}")
-    # Flask অ্যাপটি পোর্ট বাইন্ড করবে এবং HTTP ট্র্যাফিকের উত্তর দেবে, যা Render প্রত্যাশা করে
-    app.run(host="0.0.0.0", port=port)
+    try:
+        run_algo_monitor_loop()
+    except KeyboardInterrupt:
+        print("\nMonitor stopped manually.")
+    except Exception as e:
+        error_msg = f"CRITICAL ERROR: Algo crashed! {e}"
+        print(error_msg)
+        send_telegram_message(f"🚨 CRASH ALERT 🚨: {error_msg}")
     
