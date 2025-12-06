@@ -5,7 +5,8 @@ from datetime import datetime
 import warnings
 import requests 
 import time
-import json # ডেটা পারসিসটেন্সের জন্য
+import json 
+import os # Render Environment Variables access করার জন্য
 
 warnings.filterwarnings("ignore") 
 
@@ -15,7 +16,7 @@ LAST_ALIVE_CHECK = None
 # =========================
 # ⚙️ টেলিগ্রাম সেটিংস (TELEGRAM SETTINGS)
 # =========================
-# আপনার নিজস্ব টেলিগ্রাম বট টোকেন এবং চ্যাট আইডি দিন
+# আপনার টোকেন এবং আইডি কোড থেকে নেওয়া হয়েছে:
 TELEGRAM_BOT_TOKEN = "8537811183:AAF4DWeA5Sks86mBISJvS1iNvLRpkY_FgnA"  
 TELEGRAM_CHAT_ID = "8191014589"     
 
@@ -36,14 +37,16 @@ TF_ENTRY = "1h"     # এন্ট্রি ম্যানেজমেন্ট
 
 EMA_PERIOD = 200    
 ATR_PERIOD = 14     
-ATR_MULTIPLIER = 2.0 # SL দূরত্ব
-TP_MULTIPLIER = 4.0  # TP দূরত্ব (1:2 R:R)
+ATR_MULTIPLIER = 2.0 
+TP_MULTIPLIER = 4.0  
 
-MAX_SL_PCT = 3.0    # সর্বোচ্চ ঝুঁকি
+MAX_SL_PCT = 3.0    
 
 # ===============================
 # 💾 ডেটা পারসিসটেন্স ফাংশন
 # ===============================
+# দ্রষ্টব্য: Render-এর ফ্রি টায়ারে ডেটা স্থায়ী হয় না। এটি দীর্ঘমেয়াদী সল্যুশন নয়।
+# আদর্শভাবে, এখানে একটি ডেটাবেস (যেমন PostgreSQL) ব্যবহার করা উচিত।
 def load_open_trades():
     """trades.json ফাইল থেকে ওপেন ট্রেড লোড করে"""
     try:
@@ -59,6 +62,7 @@ def save_open_trades(trades):
     try:
         with open('trades.json', 'w') as f:
             json.dump(trades, f, indent=4)
+            print("Trades saved to trades.json.")
     except Exception as e:
         print(f"Error saving trades to file: {e}")
 
@@ -67,10 +71,7 @@ def save_open_trades(trades):
 # ===============================
 def send_telegram_message(message):
     """টেলিগ্রামের মাধ্যমে একটি মেসেজ পাঠায়"""
-    if TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN" or TELEGRAM_CHAT_ID == "YOUR_CHAT_ID":
-        print(f"TELEGRAM ALERT (Not Sent - Config Missing): {message}")
-        return
-        
+    # আপনার কোড থেকে টোকেন সরাসরি ব্যবহার করা হচ্ছে।
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         'chat_id': TELEGRAM_CHAT_ID,
@@ -87,7 +88,6 @@ def send_telegram_message(message):
 # ===============================
 def get_data(ticker, interval, start_date=None, end_date=None):
     try:
-        # 4h ও 1h ডেটার জন্য যথেষ্ট ডেটা fetch করা হচ্ছে 
         df = yf.download(ticker, interval=interval, period='5d', auto_adjust=False, progress=False) 
         if df is None or df.empty:
             return None
@@ -106,7 +106,6 @@ def get_data(ticker, interval, start_date=None, end_date=None):
 def add_indicators(df):
     df_copy = df.copy() 
     
-    # EMA, MACD, ATR, RSI ক্যালকুলেশন... (লজিক অপরিবর্তিত)
     df_copy["ema200"] = df_copy["close"].ewm(span=EMA_PERIOD, adjust=False).mean()
     df_copy["ema12"] = df_copy["close"].ewm(span=12, adjust=False).mean()
     df_copy["ema26"] = df_copy["close"].ewm(span=26, adjust=False).mean()
@@ -159,13 +158,13 @@ def detect_signal(df_dir_slice, df_entry_slice):
 
     entry, side, sl = None, None, None
 
-    # Long Entry Condition (Trend: Bull, Pullback Zone, MACD Bullish, RSI > 55)
+    # Long Entry Condition
     if trend == "bull" and macd_bullish and ob_low <= price <= ob_high and rsi_val > 55:
         entry = price
         side = "long"
         sl = entry - sl_distance
 
-    # Short Entry Condition (Trend: Bear, Pullback Zone, MACD Bearish, RSI < 45)
+    # Short Entry Condition
     if trend == "bear" and macd_bearish and ob_low <= price <= ob_high and rsi_val < 45:
         entry = price
         side = "short"
@@ -208,7 +207,6 @@ def check_and_send_alive_status():
     
     if LAST_ALIVE_CHECK is None or (current_time - LAST_ALIVE_CHECK) > ALIVE_INTERVAL:
         
-        # টেলিগ্রাম মেসেজ 
         msg = (
             f"💖 *MONITOR ALIVE CHECK - HEARTBEAT*\n"
             f"Status: Trading Monitor is running successfully on Render.\n"
@@ -217,11 +215,9 @@ def check_and_send_alive_status():
         )
         send_telegram_message(msg)
         
-        # সময় আপডেট করুন
         LAST_ALIVE_CHECK = current_time
         print("\n[HEARTBEAT] Alive status sent to Telegram.")
     else:
-        # 24 ঘন্টা পার না হলে শুধুমাত্র কনসোলে প্রিন্ট করুন
         time_to_next_check = int((ALIVE_INTERVAL - (current_time - LAST_ALIVE_CHECK)) / 3600)
         print(f"\n[ALIVE] Monitor is running. Next Telegram check in: {time_to_next_check} hours.")
 
@@ -233,15 +229,12 @@ def monitor_signals():
     
     global open_trades
     
-    # --- Alive Check ---
     check_and_send_alive_status() 
-    # -------------------
     
     print(f"\n--- Checking Signals at {datetime.now().strftime('%H:%M:%S')} IST ---")
     
     for ticker in COINS:
         
-        # ১. ডেটা ফেচ
         df_dir = get_data(ticker, TF_DIR)
         df_entry = get_data(ticker, TF_ENTRY)
 
@@ -251,7 +244,6 @@ def monitor_signals():
         df_dir = add_indicators(df_dir)
         df_entry = add_indicators(df_entry)
         
-        # ২. সিগন্যাল জেনারেশন
         df_dir_slice = df_dir.dropna()
         df_entry_slice = df_entry.dropna()
         
@@ -271,7 +263,7 @@ def monitor_signals():
             send_telegram_message(msg)
             
             open_trades[ticker] = sig
-            save_open_trades(open_trades) # ট্রেড সেভ করা হলো
+            save_open_trades(open_trades) 
             
         # --- (B) ট্রেইলিং SL অ্যালার্ট (Break-Even Simulation) ---
         elif ticker in open_trades:
@@ -285,7 +277,6 @@ def monitor_signals():
             elif trade['side'] == 'short' and current_price <= trade['be_level']:
                 be_hit = True
 
-            # যদি 1:1 হিট করে এবং এখনও অ্যালার্ট না দেওয়া হয়ে থাকে
             if be_hit and trade.get('sl_shift_alert') != True:
                 
                 msg = (
@@ -296,7 +287,7 @@ def monitor_signals():
                 send_telegram_message(msg)
                 
                 open_trades[ticker]['sl_shift_alert'] = True
-                save_open_trades(open_trades) # ট্র্যাকিং স্ট্যাটাস সেভ করা হলো
+                save_open_trades(open_trades) 
                 
         # --- (C) ওপেন ট্রেড চেক (শুধুমাত্র কনসোলে) ---
         if ticker in open_trades:
@@ -319,4 +310,4 @@ if __name__ == "__main__":
         monitor_signals()
         print(f"Sleeping for {CHECK_INTERVAL_SECONDS / 60} minutes...")
         time.sleep(CHECK_INTERVAL_SECONDS)
-
+        
