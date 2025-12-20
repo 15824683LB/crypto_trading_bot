@@ -1,14 +1,22 @@
-from flask import Flask
 import threading
+from flask import Flask
 
+# ---------------- FLASK APP ----------------
 app = Flask(__name__)
 
-@app.route('/')
+@app.route("/")
 def home():
-    return "✅ Swing Bot is Running!"
+    return "✅ Crypto Trading Bot is Running"
 
-def run():
-    app.run(host='0.0.0.0', port=10000)
+def run_flask():
+    # Render gives PORT automatically
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
-# === Keep Alive ===
-threading.Thread(target=run).start()
+# ---------------- MAIN ----------------
+if __name__ == "__main__":
+    # Start Flask server in background
+    threading.Thread(target=run_flask).start()
+
+    # Start your trading bot logic
+    print("🚀 Trading bot started")
+    main()   # তোমার existing main() function
