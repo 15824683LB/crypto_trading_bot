@@ -22,3 +22,9 @@ websocket-client
 websockets==14.2
 Twisted==24.11.0
 protobuf==5.29.3
+delta-rest-client
+python-dotenv
+pandas
+ta
+flask
+
