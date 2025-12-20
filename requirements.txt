@@ -18,7 +18,15 @@ logzero==1.7.0
 
 pandas==2.2.3
 
-pandas-ta
+certifi==2025.1.31
+dhanhq
+growwapi
+flask==3.1.0
+fyers_apiv3==3.1.5
+kiteconnect==5.0.1
+logzero==1.7.0
+pandas==2.2.3
+git+https://github.com/twopirllc/pandas-ta.git
 
 protobuf==5.29.3
 
