@@ -1,14 +1,27 @@
 # delta_rest_client.py
-# Minimal Delta Exchange REST Client
-# Works on Render / Server
+# Render Compatible Delta Exchange Client
 
 import time
 import hmac
 import hashlib
 import requests
 import json
+from enum import Enum
 
 
+# ================= ENUMS =================
+class OrderType(str, Enum):
+    MARKET = "market"
+    LIMIT = "limit"
+
+
+class TimeInForce(str, Enum):
+    GTC = "gtc"      # Good Till Cancel
+    IOC = "ioc"      # Immediate Or Cancel
+    FOK = "fok"      # Fill Or Kill
+
+
+# ================= CLIENT =================
 class DeltaRestClient:
     def __init__(self, api_key, api_secret, base_url="https://api.delta.exchange"):
         self.api_key = api_key
