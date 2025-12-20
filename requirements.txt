@@ -18,7 +18,7 @@ logzero==1.7.0
 
 pandas==2.2.3
 
-pandas_ta==0.3.14b0
+pandas-ta
 
 protobuf==5.29.3
 
