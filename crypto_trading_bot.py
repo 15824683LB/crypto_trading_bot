@@ -1,172 +1,165 @@
-import os
-import time
+# ===============================
+# NIFTY OPTION SIGNAL BOT
+# TradingView Data → Python Bot → Telegram
+# ===============================
+
+from flask import Flask, request
 import pandas as pd
-import ta
+import requests
 from datetime import datetime
-from dotenv import load_dotenv
-from delta_rest_client import DeltaRestClient
-from flask import Flask
-from threading import Thread
+import os
 
-# ===================== KEEP ALIVE SERVER =====================
-# Render-এ ২৪/৭ সচল রাখার জন্য ছোট ওয়েব সার্ভার
-app = Flask('')
+# ===============================
+# CONFIG
+# ===============================
 
-@app.route('/')
-def home():
-    return "Bot is running 24/7!"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-def run_flask():
-    app.run(host='0.0.0.0', port=8080)
+QTY_PER_LOT = 65
+LOTS = 2
+MAX_TRADES_PER_DAY = 2
 
-def keep_alive():
-    t = Thread(target=run_flask)
-    t.daemon = True
-    t.start()
+EXIT_TIME = "15:15"   # future use
 
-# ===================== CONFIGURATION =====================
-load_dotenv()
-API_KEY = os.getenv("DELTA_API_KEY")
-API_SECRET = os.getenv("DELTA_API_SECRET")
-BASE_URL = 'https://api.india.delta.exchange'
+# ===============================
+# APP INIT
+# ===============================
 
-instrument = "BTCUSD"
-qty = 1                
-papertrading = 1 # 1 = LIVE TRADE        
-max_trade = 5
-timeFrame = 15          
+app = Flask(__name__)
 
-rsi_buy_level = 53
-rsi_sell_level = 47
-rr1, rr2, rr3 = 2.0, 5.0, 10.0
+data = []
+trades_today = 0
+active_trade = None
+first_trade_result = None   # "PROFIT" / "LOSS"
 
-# ===================== STATE VARIABLES =====================
-st, sl, sl_initial = 0, 0, 0
-tp1, tp2, tp3 = 0, 0, 0
-entry_price, trade_count = 0, 0
-last_candle_time = None
-partial_1, partial_2 = False, False
+# ===============================
+# TELEGRAM FUNCTION
+# ===============================
 
-# ===================== INITIALIZE =====================
-client = DeltaRestClient(base_url=BASE_URL, api_key=API_KEY, api_secret=API_SECRET)
+def send_telegram(msg):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    requests.post(url, json={
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": msg
+    })
 
-def log(msg, emo="ℹ️"):
-    print(f"{emo} [{datetime.now().strftime('%H:%M:%S')}] {msg}")
+# ===============================
+# INDICATORS
+# ===============================
 
-def get_data(symbol, tf):
-    # আপনার helper_delta.py ফাইলটি অবশ্যই এক ফোল্ডারে থাকতে হবে
-    import helper_delta as helper
-    df = helper.getHistorical(symbol, tf, 200)
-    if df is None or len(df) < 50: return None
-    df.columns = [c.lower() for c in df.columns]
+def bollinger_band(df, length=20, mult=2):
+    df["MB"] = df["close"].rolling(length).mean()
+    df["STD"] = df["close"].rolling(length).std()
+    df["UB"] = df["MB"] + mult * df["STD"]
+    df["LB"] = df["MB"] - mult * df["STD"]
     return df
 
-def place_order(side, order_qty):
-    ticker = client.get_ticker(instrument)
-    price = float(ticker.get('mark_price'))
-    log(f"{side.upper()} Order | Qty: {order_qty} @ {price}", "🔔")
-    return client.place_order(
-        product_id=ticker['product_id'],
-        size=order_qty,
-        side=side.lower(),
-        order_type="market"
-    )
+def heikin_ashi(df):
+    ha = df.copy()
+    ha["HA_Close"] = (df["open"] + df["high"] + df["low"] + df["close"]) / 4
 
-# ===================== STRATEGY ENGINE =====================
-def start_strategy():
-    global st, sl, sl_initial, tp1, tp2, tp3, entry_price, trade_count, last_candle_time, partial_1, partial_2
-    
-    log("STRATEGY ENGINE ACTIVATED 🚀")
-    
-    while True:
-        now = datetime.now()
-        
-        # ১৫ মিনিট অন্তর চেক
-        if now.minute % timeFrame == 0 and now.second <= 2:
-            data = get_data(instrument, timeFrame)
-            
-            if data is not None and data.index[-1] != last_candle_time:
-                last_candle_time = data.index[-1]
-                
-                rsi = ta.momentum.RSIIndicator(data['close'], 14).rsi().iloc[-2]
-                last_low, last_high = data['low'].iloc[-2], data['high'].iloc[-2]
-                ticker = client.get_ticker(instrument)
-                curr_price = float(ticker.get('mark_price'))
+    ha_open = [(df["open"].iloc[0] + df["close"].iloc[0]) / 2]
+    for i in range(1, len(df)):
+        ha_open.append((ha_open[i-1] + ha["HA_Close"].iloc[i-1]) / 2)
 
-                if st == 0 and trade_count < max_trade:
-                    # LONG ENTRY
-                    if rsi > rsi_buy_level:
-                        entry_price = curr_price
-                        sl = last_low * (1 - 0.0006)
-                        sl_initial = sl
-                        risk = entry_price - sl
-                        tp1, tp2, tp3 = entry_price+(risk*rr1), entry_price+(risk*rr2), entry_price+(risk*rr3)
-                        place_order("buy", qty)
-                        st, partial_1, partial_2 = 1, False, False
-                        trade_count += 1
-                        log(f"LONG ENTRY! SL: {round(sl,2)}, TP1: {round(tp1,2)}", "📈")
+    ha["HA_Open"] = ha_open
+    ha["HA_High"] = ha[["HA_Open", "HA_Close", "high"]].max(axis=1)
+    ha["HA_Low"] = ha[["HA_Open", "HA_Close", "low"]].min(axis=1)
 
-                    # SHORT ENTRY
-                    elif rsi < rsi_sell_level:
-                        entry_price = curr_price
-                        sl = last_high * (1 + 0.0006)
-                        sl_initial = sl
-                        risk = sl - entry_price
-                        tp1, tp2, tp3 = entry_price-(risk*rr1), entry_price-(risk*rr2), entry_price-(risk*rr3)
-                        place_order("sell", qty)
-                        st, partial_1, partial_2 = 2, False, False
-                        trade_count += 1
-                        log(f"SHORT ENTRY! SL: {round(sl,2)}, TP1: {round(tp1,2)}", "📉")
+    return ha
 
-        # পজিশন ম্যানেজমেন্ট (SL, TP1, TP2, TP3)
-        if st != 0:
-            try:
-                ticker = client.get_ticker(instrument)
-                price = float(ticker.get('mark_price'))
+# ===============================
+# TRADE CONTROL
+# ===============================
 
-                if st == 1: # Long
-                    if price >= tp1 and not partial_1:
-                        place_order("sell", qty * 0.5)
-                        sl, partial_1 = entry_price, True
-                        log("TP1 HIT (1:2) - 50% Out, SL to Entry 🎯")
-                    elif price >= tp2 and not partial_2:
-                        place_order("sell", qty * 0.25)
-                        sl, partial_2 = tp1, True
-                        log("TP2 HIT (1:5) - 25% Out, SL to TP1 🎯")
-                    elif price >= tp3:
-                        place_market_order("sell", qty * 0.25)
-                        st = 0
-                        log("FINAL TP3 HIT! 🏆")
-                    elif price <= sl:
-                        rem = qty * 0.25 if partial_2 else (qty * 0.5 if partial_1 else qty)
-                        place_order("sell", rem)
-                        st = 0
-                        log("LONG SL/TSL HIT 🛑")
+def can_trade():
+    global trades_today, active_trade, first_trade_result
+    if trades_today >= MAX_TRADES_PER_DAY:
+        return False
+    if active_trade is not None:
+        return False
+    if first_trade_result == "PROFIT":
+        return False
+    return True
 
-                elif st == 2: # Short
-                    if price <= tp1 and not partial_1:
-                        place_order("buy", qty * 0.5)
-                        sl, partial_1 = entry_price, True
-                        log("TP1 HIT (1:2) - 50% Out, SL to Entry 🎯")
-                    elif price <= tp2 and not partial_2:
-                        place_order("buy", qty * 0.25)
-                        sl, partial_2 = tp1, True
-                        log("TP2 HIT (1:5) - 25% Out, SL to TP1 🎯")
-                    elif price <= tp3:
-                        place_market_order("buy", qty * 0.25)
-                        st = 0
-                        log("FINAL TP3 HIT! 🏆")
-                    elif price >= sl:
-                        rem = qty * 0.25 if partial_2 else (qty * 0.5 if partial_1 else qty)
-                        place_order("buy", rem)
-                        st = 0
-                        log("SHORT SL/TSL HIT 🛑")
-            except Exception as e:
-                log(f"Error: {e}", "❌")
-        
-        time.sleep(1)
+# ===============================
+# WEBHOOK (TradingView → Bot)
+# ===============================
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    global data, trades_today, active_trade
+
+    candle = request.json
+    data.append(candle)
+
+    df = pd.DataFrame(data)
+
+    if len(df) < 25:
+        return "OK"
+
+    df = bollinger_band(df)
+    df = heikin_ashi(df)
+
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    # ===============================
+    # CE LOGIC
+    # BB Upper + HA Red + Low Break
+    # ===============================
+
+    if can_trade():
+        if (
+            prev["HA_Close"] < prev["HA_Open"] and
+            prev["high"] >= prev["UB"] and
+            last["low"] < prev["low"]
+        ):
+            trades_today += 1
+            active_trade = {
+                "side": "CE",
+                "entry": last["close"],
+                "sl": prev["high"]
+            }
+
+            send_telegram(
+                f"🔴 CE ENTRY\n"
+                f"Entry: {last['close']:.2f}\n"
+                f"SL: {prev['high']:.2f}\n"
+                f"Qty: {LOTS} × {QTY_PER_LOT}"
+            )
+
+    # ===============================
+    # PE LOGIC
+    # BB Lower + HA Green + High Break
+    # ===============================
+
+    if can_trade():
+        if (
+            prev["HA_Close"] > prev["HA_Open"] and
+            prev["low"] <= prev["LB"] and
+            last["high"] > prev["high"]
+        ):
+            trades_today += 1
+            active_trade = {
+                "side": "PE",
+                "entry": last["close"],
+                "sl": prev["low"]
+            }
+
+            send_telegram(
+                f"🟢 PE ENTRY\n"
+                f"Entry: {last['close']:.2f}\n"
+                f"SL: {prev['low']:.2f}\n"
+                f"Qty: {LOTS} × {QTY_PER_LOT}"
+            )
+
+    return "OK"
+
+# ===============================
+# RUN SERVER
+# ===============================
 
 if __name__ == "__main__":
-    keep_alive() # ওয়েব সার্ভার চালু করবে
-    start_strategy() # ট্রেডিং লজিক চালু করবে
-    
+    app.run(host="0.0.0.0", port=9000)
