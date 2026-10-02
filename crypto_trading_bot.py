@@ -1,165 +1,120 @@
-# ===============================
-# NIFTY OPTION SIGNAL BOT
-# TradingView Data → Python Bot → Telegram
-# ===============================
-
-from flask import Flask, request
+import ccxt
+import time
 import pandas as pd
-import requests
-from datetime import datetime
-import os
+import numpy as np
+from telegram import Bot
 
-# ===============================
-# CONFIG
-# ===============================
+# --- CONFIGURATION ---
+TELEGRAM_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'
+CHAT_ID = 'YOUR_TELEGRAM_CHAT_ID'
+bot = Bot(token=TELEGRAM_TOKEN)
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# CoinDCX Exchange Setup
+exchange = ccxt.coindcx({
+    'enableRateLimit': True,
+})
 
-QTY_PER_LOT = 65
-LOTS = 2
-MAX_TRADES_PER_DAY = 2
+def calculate_bollinger_bands(closes, length=20, std_dev=2):
+    df = pd.DataFrame({'close': closes})
+    sma = df['close'].rolling(window=length).mean()
+    std = df['close'].rolling(window=length).std()
+    upper_band = sma + (std * std_dev)
+    lower_band = sma - (std * std_dev)
+    return upper_band, lower_band, sma
 
-EXIT_TIME = "15:15"   # future use
+def check_parallel_bands(upper, lower, threshold=0.003):
+    widths = (upper - lower) / lower
+    recent_widths = widths.iloc[-4:]
+    if recent_widths.mean() < threshold and recent_widths.std() < 0.001:
+        return True
+    return False
 
-# ===============================
-# APP INIT
-# ===============================
+def scan_market():
+    try:
+        print("Scanning CoinDCX market for Bollinger Band breakout/breakdown...")
+        exchange.load_markets()
+        tickers = exchange.fetch_tickers()
+        
+        # CoinDCX-er USDT ba INR pair gulo filter kora
+        valid_tickers = {symbol: data for symbol, data in tickers.items() if ('/USDT' in symbol or '/INR' in symbol) and data.get('percentage') is not None}
+        sorted_tickers = sorted(valid_tickers.items(), key=lambda x: x[1]['percentage'], reverse=True)
+        
+        # Top 20 Gainers ebong Top 20 Losers
+        top_gainers = sorted_tickers[:20]
+        top_losers = sorted_tickers[-20:]
+        
+        alerts = []
 
-app = Flask(__name__)
+        # 1. Top Gainers check kora (Buy Setup)
+        for symbol, data in top_gainers:
+            try:
+                ohlcv = exchange.fetch_ohlcv(symbol, timeframe='5m', limit=35)
+                if len(ohlcv) < 30: continue
+                closes = pd.Series([x[4] for x in ohlcv])
+                
+                upper, lower, sma = calculate_bollinger_bands(closes)
+                
+                if check_parallel_bands(upper, lower):
+                    current_price = closes.iloc[-1]
+                    prev_price = closes.iloc[-2]
+                    prev_upper = upper.iloc[-2]
+                    curr_upper = upper.iloc[-1]
+                    
+                    if prev_price <= prev_upper and current_price > curr_upper:
+                        high_val = max([x[2] for x in ohlcv[-3:]])
+                        low_val = min([x[3] for x in ohlcv[-3:]])
+                        msg = (
+                            f"🚀 *COINDCX: TOP GAINER BREAKOUT (BUY)*\n"
+                            f"• Coin: `{symbol}`\n"
+                            f"• Price: `{current_price}`\n"
+                            f"• Strategy: 5M Parallel BB Breakout\n"
+                            f"• Entry (High): `{high_val}`\n"
+                            f"• Stop Loss (Low): `{low_val}`"
+                        )
+                        alerts.append(msg)
+            except Exception as e:
+                continue
 
-data = []
-trades_today = 0
-active_trade = None
-first_trade_result = None   # "PROFIT" / "LOSS"
+        # 2. Top Losers check kora (Short Setup)
+        for symbol, data in top_losers:
+            try:
+                ohlcv = exchange.fetch_ohlcv(symbol, timeframe='5m', limit=35)
+                if len(ohlcv) < 30: continue
+                closes = pd.Series([x[4] for x in ohlcv])
+                
+                upper, lower, sma = calculate_bollinger_bands(closes)
+                
+                if check_parallel_bands(upper, lower):
+                    current_price = closes.iloc[-1]
+                    prev_price = closes.iloc[-2]
+                    prev_lower = lower.iloc[-2]
+                    curr_lower = lower.iloc[-1]
+                    
+                    if prev_price >= prev_lower and current_price < curr_lower:
+                        high_val = max([x[2] for x in ohlcv[-3:]])
+                        low_val = min([x[3] for x in ohlcv[-3:]])
+                        msg = (
+                            f"🔻 *COINDCX: TOP LOSER BREAKDOWN (SHORT)*\n"
+                            f"• Coin: `{symbol}`\n"
+                            f"• Price: `{current_price}`\n"
+                            f"• Strategy: 5M Parallel BB Breakdown\n"
+                            f"• Entry (Low): `{low_val}`\n"
+                            f"• Stop Loss (High): `{high_val}`"
+                        )
+                        alerts.append(msg)
+            except Exception as e:
+                continue
 
-# ===============================
-# TELEGRAM FUNCTION
-# ===============================
+        # Telegram-e alert pathano
+        for alert in alerts:
+            bot.send_message(chat_id=CHAT_ID, text=alert, parse_mode='Markdown')
+            time.sleep(1)
 
-def send_telegram(msg):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    requests.post(url, json={
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": msg
-    })
-
-# ===============================
-# INDICATORS
-# ===============================
-
-def bollinger_band(df, length=20, mult=2):
-    df["MB"] = df["close"].rolling(length).mean()
-    df["STD"] = df["close"].rolling(length).std()
-    df["UB"] = df["MB"] + mult * df["STD"]
-    df["LB"] = df["MB"] - mult * df["STD"]
-    return df
-
-def heikin_ashi(df):
-    ha = df.copy()
-    ha["HA_Close"] = (df["open"] + df["high"] + df["low"] + df["close"]) / 4
-
-    ha_open = [(df["open"].iloc[0] + df["close"].iloc[0]) / 2]
-    for i in range(1, len(df)):
-        ha_open.append((ha_open[i-1] + ha["HA_Close"].iloc[i-1]) / 2)
-
-    ha["HA_Open"] = ha_open
-    ha["HA_High"] = ha[["HA_Open", "HA_Close", "high"]].max(axis=1)
-    ha["HA_Low"] = ha[["HA_Open", "HA_Close", "low"]].min(axis=1)
-
-    return ha
-
-# ===============================
-# TRADE CONTROL
-# ===============================
-
-def can_trade():
-    global trades_today, active_trade, first_trade_result
-    if trades_today >= MAX_TRADES_PER_DAY:
-        return False
-    if active_trade is not None:
-        return False
-    if first_trade_result == "PROFIT":
-        return False
-    return True
-
-# ===============================
-# WEBHOOK (TradingView → Bot)
-# ===============================
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    global data, trades_today, active_trade
-
-    candle = request.json
-    data.append(candle)
-
-    df = pd.DataFrame(data)
-
-    if len(df) < 25:
-        return "OK"
-
-    df = bollinger_band(df)
-    df = heikin_ashi(df)
-
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
-
-    # ===============================
-    # CE LOGIC
-    # BB Upper + HA Red + Low Break
-    # ===============================
-
-    if can_trade():
-        if (
-            prev["HA_Close"] < prev["HA_Open"] and
-            prev["high"] >= prev["UB"] and
-            last["low"] < prev["low"]
-        ):
-            trades_today += 1
-            active_trade = {
-                "side": "CE",
-                "entry": last["close"],
-                "sl": prev["high"]
-            }
-
-            send_telegram(
-                f"🔴 CE ENTRY\n"
-                f"Entry: {last['close']:.2f}\n"
-                f"SL: {prev['high']:.2f}\n"
-                f"Qty: {LOTS} × {QTY_PER_LOT}"
-            )
-
-    # ===============================
-    # PE LOGIC
-    # BB Lower + HA Green + High Break
-    # ===============================
-
-    if can_trade():
-        if (
-            prev["HA_Close"] > prev["HA_Open"] and
-            prev["low"] <= prev["LB"] and
-            last["high"] > prev["high"]
-        ):
-            trades_today += 1
-            active_trade = {
-                "side": "PE",
-                "entry": last["close"],
-                "sl": prev["low"]
-            }
-
-            send_telegram(
-                f"🟢 PE ENTRY\n"
-                f"Entry: {last['close']:.2f}\n"
-                f"SL: {prev['low']:.2f}\n"
-                f"Qty: {LOTS} × {QTY_PER_LOT}"
-            )
-
-    return "OK"
-
-# ===============================
-# RUN SERVER
-# ===============================
+    except Exception as e:
+        print(f"CoinDCX Scanner Error: {e}")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=9000)
+    print("CoinDCX Bollinger Band Telegram Scanner Started...")
+    while True:
+        scan_market()
+        time.sleep(300)
