@@ -5,14 +5,25 @@ import numpy as np
 from telegram import Bot
 
 # --- CONFIGURATION ---
-TELEGRAM_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'
-CHAT_ID = 'YOUR_TELEGRAM_CHAT_ID'
+TELEGRAM_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'  # Apnar Bot Token ekhane din
+CHAT_ID = 'YOUR_TELEGRAM_CHAT_ID'           # Apnar Chat ID ekhane din
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# CoinDCX Exchange Setup
-exchange = ccxt.coindcx({
-    'enableRateLimit': True,
-})
+def get_exchange():
+    # Prothome CoinDCX try korbe, kono error hole Binance-e fallback korbe
+    try:
+        print("Initializing CoinDCX...")
+        ex = ccxt.coindcx({'enableRateLimit': True})
+        ex.load_markets()
+        return ex, "CoinDCX"
+    except Exception as e:
+        print(f"CoinDCX initialization failed: {e}. Falling back to Binance.")
+        ex = ccxt.binance({'enableRateLimit': True})
+        ex.load_markets()
+        return ex, "Binance"
+
+exchange, exchange_name = get_exchange()
+print(f"Using exchange: {exchange_name}")
 
 def calculate_bollinger_bands(closes, length=20, std_dev=2):
     df = pd.DataFrame({'close': closes})
@@ -30,22 +41,29 @@ def check_parallel_bands(upper, lower, threshold=0.003):
     return False
 
 def scan_market():
+    global exchange, exchange_name
     try:
-        print("Scanning CoinDCX market for Bollinger Band breakout/breakdown...")
-        exchange.load_markets()
-        tickers = exchange.fetch_tickers()
-        
-        # CoinDCX-er USDT ba INR pair gulo filter kora
+        print(f"Scanning {exchange_name} market for Bollinger Band breakout/breakdown...")
+        try:
+            tickers = exchange.fetch_tickers()
+        except Exception as ticker_err:
+            print(f"Ticker fetch error on {exchange_name}: {ticker_err}. Switching to Binance fallback.")
+            exchange = ccxt.binance({'enableRateLimit': True})
+            exchange.load_markets()
+            exchange_name = "Binance"
+            tickers = exchange.fetch_tickers()
+
+        # Valid USDT/INR pairs filtering and sorting by percentage
         valid_tickers = {symbol: data for symbol, data in tickers.items() if ('/USDT' in symbol or '/INR' in symbol) and data.get('percentage') is not None}
         sorted_tickers = sorted(valid_tickers.items(), key=lambda x: x[1]['percentage'], reverse=True)
         
-        # Top 20 Gainers ebong Top 20 Losers
+        # Top 20 Gainers and Top 20 Losers
         top_gainers = sorted_tickers[:20]
         top_losers = sorted_tickers[-20:]
         
         alerts = []
 
-        # 1. Top Gainers check kora (Buy Setup)
+        # 1. Top Gainers check (Buy Setup)
         for symbol, data in top_gainers:
             try:
                 ohlcv = exchange.fetch_ohlcv(symbol, timeframe='5m', limit=35)
@@ -64,7 +82,7 @@ def scan_market():
                         high_val = max([x[2] for x in ohlcv[-3:]])
                         low_val = min([x[3] for x in ohlcv[-3:]])
                         msg = (
-                            f"🚀 *COINDCX: TOP GAINER BREAKOUT (BUY)*\n"
+                            f"🚀 *{exchange_name}: TOP GAINER BREAKOUT (BUY)*\n"
                             f"• Coin: `{symbol}`\n"
                             f"• Price: `{current_price}`\n"
                             f"• Strategy: 5M Parallel BB Breakout\n"
@@ -75,7 +93,7 @@ def scan_market():
             except Exception as e:
                 continue
 
-        # 2. Top Losers check kora (Short Setup)
+        # 2. Top Losers check (Short Setup)
         for symbol, data in top_losers:
             try:
                 ohlcv = exchange.fetch_ohlcv(symbol, timeframe='5m', limit=35)
@@ -94,7 +112,7 @@ def scan_market():
                         high_val = max([x[2] for x in ohlcv[-3:]])
                         low_val = min([x[3] for x in ohlcv[-3:]])
                         msg = (
-                            f"🔻 *COINDCX: TOP LOSER BREAKDOWN (SHORT)*\n"
+                            f"🔻 *{exchange_name}: TOP LOSER BREAKDOWN (SHORT)*\n"
                             f"• Coin: `{symbol}`\n"
                             f"• Price: `{current_price}`\n"
                             f"• Strategy: 5M Parallel BB Breakdown\n"
@@ -105,16 +123,16 @@ def scan_market():
             except Exception as e:
                 continue
 
-        # Telegram-e alert pathano
+        # Send alerts via Telegram
         for alert in alerts:
             bot.send_message(chat_id=CHAT_ID, text=alert, parse_mode='Markdown')
             time.sleep(1)
 
     except Exception as e:
-        print(f"CoinDCX Scanner Error: {e}")
+        print(f"Scanner Loop Error: {e}")
 
 if __name__ == "__main__":
-    print("CoinDCX Bollinger Band Telegram Scanner Started...")
+    print("Bollinger Band Telegram Scanner with Fallback Started...")
     while True:
         scan_market()
-        time.sleep(300)
+        time.sleep(300) # Every 5 minutes scan
